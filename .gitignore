@@ -34,3 +34,9 @@ assets/out/
 test/ref/
 *.fifoa.raw
 *.fifob.raw
+
+# Lazarus launcher build artifacts
+shell/lib/
+shell/*.exe
+shell/*.lps
+shell/backup/

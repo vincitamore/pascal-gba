@@ -75,6 +75,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-host.ps1
 
 # Rebuild the bundled BIOS from bios\src (only needed after editing it)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-bios.ps1
+
+# Windowed launcher (ROM picker; needs Lazarus for lazbuild)
+lazbuild shell\gbashell.lpi
 ```
 
 Toolchain missing? `tools\toolchain-check.ps1` reports OK/MISS per component;

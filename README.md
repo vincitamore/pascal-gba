@@ -28,6 +28,7 @@ with a bundled MIT-licensed replacement BIOS so nothing else is needed to run.
 | `bios/` | Bundled replacement BIOS: prebuilt `gba_bios.bin` + buildable source |
 | `assets/` | Image-to-GBA asset pipeline (`sprite.py` + `sprite_lib/`) |
 | `docs/` | Engineering notes: debug logging, PPU gotchas, RTL limitations |
+| `shell/` | Windowed launcher (Lazarus LCL): ROM picker + recent list |
 | `skill/` | The agent skill |
 | `build-gba.ps1` | Cross-compile a Pascal source to a `.gba` ROM |
 
@@ -76,6 +77,7 @@ the window and audio and runs as fast as the host allows.
 | `--bios PATH` | BIOS image (default `bios\gba_bios.bin`) |
 | `--frames N` | Frames to simulate (0 = run until the window closes) |
 | `--headless` | No window, no audio, no frame pacing |
+| `--scale N` | Window size multiplier, 1-8 (default 3) |
 | `--screenshot PATH` | Write the framebuffer as PNG at end of run |
 | `--screenshot-frame N` | Capture at the end of frame N instead |
 | `--replay PATH` | Drive scripted input from a replay file |
@@ -87,11 +89,25 @@ Exit codes: `0` clean, `1` ROM/BIOS missing or unloadable, `2` unmapped-memory
 flood, `3` CPU halted with no IRQ progress. In windowed mode, F12 writes a
 full state dump (CPU, IRQ, timers, DMA, OAM, debug log) to `dumps\`.
 
-Scope: full ARM + THUMB instruction set, PPU modes 0/1/2 (tile, affine,
-sprites, windows, blending), all four DMA channels and timers, all IRQ
-sources, PSG + Direct Sound FIFO audio, SRAM/Flash/EEPROM saves with
-autodetection. Bitmap modes 3/4/5, serial link, and cycle-accurate prefetch
-timing are out of scope.
+Scope: full ARM + THUMB instruction set, all six PPU modes (tile, affine,
+and bitmap backgrounds; sprites, windows, blending), all four DMA channels
+and timers, all IRQ sources, PSG + Direct Sound FIFO audio through a
+reference-validated output stage, SRAM/Flash/EEPROM saves with
+autodetection. Serial link and cycle-accurate prefetch timing are out of
+scope.
+
+## Windowed launcher
+
+`shell\` holds a small Lazarus LCL launcher: a ROM picker with a recent-ROMs
+list, BIOS path field, and an on-screen controls reference. Build it with
+lazbuild (ships with [Lazarus](https://www.lazarus-ide.org/)):
+
+```powershell
+lazbuild shell\gbashell.lpi
+.\shell\gbashell.exe     # run from the repo root so the bundled BIOS resolves
+```
+
+The recent-ROMs list persists to `%APPDATA%\PascalGBAecent.txt`.
 
 ## Replay scripts
 
