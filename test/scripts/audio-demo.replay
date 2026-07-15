@@ -1,0 +1,7 @@
+# Fire each canned SFX voice once, spaced out over the looping tune.
+100  tap A
+160  tap B
+220  tap UP
+280  tap DOWN
+340  tap LEFT
+400  tap RIGHT

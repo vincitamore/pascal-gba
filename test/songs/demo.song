@@ -1,0 +1,16 @@
+# Bright arcade loop in C major — the kit audio demo tune.
+song  demo
+tempo 140
+loop  on
+
+# I - IV - V - I arpeggio round, plucky lead.
+lead: c4:2 e4:2 g4:2 c5:2 g4:2 e4:2 c4:4
+lead: f4:2 a4:2 c5:2 f5:2 c5:2 a4:2 f4:4
+lead: g4:2 b4:2 d5:2 g5:2 d5:2 b4:2 g4:4
+lead: c5:2 b4:2 g4:2 e4:2 c4:8
+
+# Steady hat on the quarter notes.
+noise: x:4 x:4 x:4 x:4
+noise: x:4 x:4 x:4 x:4
+noise: x:4 x:4 x:4 x:4
+noise: x:4 x:4 x:4 x:4

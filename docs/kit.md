@@ -15,11 +15,14 @@ pulls them):
 | `Kit_Rng` | seeded deterministic xorshift32 | yes (`test_kit`) |
 | `Kit_Fixed` | 24.8 fixed-point arithmetic | yes (`test_kit`) |
 | `Kit_Save` | byte-wide SRAM access, verified writes, checksum | checksum yes; SRAM via demo cart |
+| `Kit_Audio` | PSG sound effects + two-track music sequencer | demo cart + wav analysis |
 
 `test/kit_demo.pp` exercises every unit in one cart; `test/test_kit.pas`
 pins the pure parts (RNG sequence, fixed-point identities, scene
 semantics, checksum). The RNG sequence test is a determinism contract:
 changing the generator breaks every recorded game replay.
+`test/audio_demo_cart.pp` exercises `Kit_Audio` (looping tune + the six
+canned SFX voices).
 
 ## Frame shape
 
@@ -84,6 +87,44 @@ Linking `Kit_Save` embeds the `SRAM_V113` marker, so save-type
 autodetection (this emulator, mGBA, flashcarts) maps 32 KB SRAM without
 any per-cart work. All SRAM access is byte-wide — the region is an 8-bit
 bus; `Kit_Save`'s block helpers already respect that.
+
+## Audio (Kit_Audio)
+
+Channel plan: ch1 = sound effects (the sweep unit gives zips and boings
+for free), ch2 = music lead, ch4 = noise percussion — no contention by
+construction; ch3 (wave) stays free.
+
+- `AudioInit` once at boot; `MusicTick` once per frame next to
+  `InputUpdate`/`SceneTick`.
+- SFX are one-shot hardware-envelope voices: `SfxTap`, `SfxGrab`,
+  `SfxDrop`, `SfxPop`, `SfxBoing`, `SfxSparkle`, or raw
+  `SfxPlay(sweep, env, freq)`.
+- Music notes are plucky (retrigger + envelope decay), so song data is
+  just (note, duration-in-frames) pairs — no note-off events.
+
+Songs are authored as text scores and baked by `tools/song.py`:
+
+```
+song  demo
+tempo 140
+loop  on
+lead:  c4:2 e4:2 g4:2 c5:4 r:2
+noise: x:4 x:4
+```
+
+`python tools/song.py score.song` writes a Pascal include with
+`TSongEvent` arrays for `MusicPlay`. Durations are sixteenths; the
+generator converts to frames with cumulative rounding so long songs
+hold tempo. Generated `.inc` files are committed so a clean clone
+builds without Python; regenerate after editing the score.
+`test/songs/demo.song` -> `test/songs/demo.inc` is the working example.
+
+One hardware trap the canned voices already respect: an upward sweep
+adds `X >> shift` to the frequency value each tick and DISABLES the
+channel the moment it would pass 2047. Aggressive upward sweeps (small
+shift, high start frequency) mute the voice within milliseconds —
+sweep up gently (shift 6-7) from mid-range notes, or skip the sweep
+near the register ceiling.
 
 ## Debug narration in kit-based carts
 

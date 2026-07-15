@@ -159,14 +159,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\headless_smoke.ps1
 .\build-gba.ps1 test\kit_demo
 .\bin\gbarun.exe --rom test\kit_demo.gba --headless --frames 300 --replay test\scripts\kit-demo.replay
 #    deterministic play field: screenshots are byte-stable across runs.
+
+# 7. Kit audio demo (looping tune + six SFX voices; START toggles music):
+.\build-gba.ps1 test\audio_demo_cart
+.\bin\gbarun.exe --rom test\audio_demo_cart.gba --frames 0            # ear check
+.\bin\gbarun.exe --rom test\audio_demo_cart.gba --headless --frames 600 --dump-audio bin\tune.wav
+#    tune data: tools\song.py test\songs\demo.song (docs\kit.md has the format)
 ```
 
 ## Cart-side coding discipline
 
 Cart code is `{$mode objfpc}{$H+}` Pascal compiled with `-Tgba`. Real carts
 build on the framework kit (`src\kit\`: scene machine, input edge-detect,
-seeded RNG, fixed-point, SRAM save — `docs\kit.md` has the unit reference,
-frame shape, add-a-game recipe, and determinism rules). The RTL rules
+seeded RNG, fixed-point, SRAM save, PSG audio driver + `tools\song.py`
+score authoring — `docs\kit.md` has the unit reference, frame shape,
+add-a-game recipe, determinism rules, and the score format). The RTL rules
 that bite are documented with full rationale in `docs\`:
 
 - **Debug logging** (`docs\debugging.md`): `uses Gba_Dbg`, `DbgLogStr` with
