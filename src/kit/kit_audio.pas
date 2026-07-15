@@ -63,6 +63,8 @@ procedure SfxDrop;      { falling zip — put something down }
 procedure SfxPop;       { short high pop }
 procedure SfxBoing;     { comedic soft-fail bounce }
 procedure SfxSparkle;   { high shimmer — reward tick }
+procedure SfxCrunch;    { noise munch — eating, impacts. Rides ch4, so it
+                          replaces one percussion tick when music plays }
 
 { ── Music sequencer (ch2 lead + ch4 noise) ── }
 
@@ -178,6 +180,14 @@ begin
   { B6 ping — no sweep (any upward step overflows this close to the
     register ceiling and mutes the channel, see SfxGrab). }
   SfxPlay($0000, $9280, 1982);
+end;
+
+procedure SfxCrunch;
+begin
+  { Low-pitched noise burst on ch4: volume 11, decreasing, step 2,
+    slower divider than the music hat for a chewy rattle. }
+  PWord(REG_SOUND4CNT_L)^ := $B200;
+  PWord(REG_SOUND4CNT_H)^ := $8048;
 end;
 
 { ── Music ── }
