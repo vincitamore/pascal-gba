@@ -10,6 +10,43 @@ GBA emulator with a headless replay/capture rig, and an image-to-GBA asset
 pipeline. This skill is the command surface. Everything below assumes the
 working directory is the repository root.
 
+## Maintaining this skill
+
+A stale skill is worse than no skill: an agent trusts it over the source and
+inherits the drift. If you extend the toolchain, this contract keeps the skill
+honest:
+
+- **Source is canonical, not this prose.** The runner has no `--help`
+  (unknown flags are silently ignored), so per surface the authority is: CLI
+  flags and defaults - the arg parser in `test\gbarun.pas`; replay grammar -
+  `src\replay.pas` (`TReplayAction`, `ParseButton`); debug-log wire format -
+  `src\gba_dbg.pas` + `src\dbg_log.pas` (the addresses must match on both
+  sides); exit-code thresholds - `src\gba_runner.pas`. When this file
+  disagrees with source, source wins - then fix this file.
+- **Update in the same change that moves the surface, never batched.** A new
+  flag, replay action, exit code, build step, or failure mode lands here in
+  the commit that creates it; the act of noticing is the trigger. The same
+  reflex owns the `docs\` pages and the README - a maintained skill does not
+  excuse a stale doc.
+- **Carry standing content only**: what is true now and how to use it.
+  History belongs in git log; project status and plans do not live here at
+  all.
+- **Admission filter.** Command surface and gotchas that bite repeatedly go
+  here; deep rationale and investigation write-ups go to a `docs\` page,
+  linked; one-off session detail goes nowhere.
+- **Defer only against a concrete trigger** ("when a second cart needs X"),
+  never a calendar bucket ("later", "v2") - an undated deferral rots into
+  permanent invisible debt.
+- **Compress a section when it accretes past utility.** Maintenance is not
+  append-only.
+- **After editing, verify on a real task**: run the acceptance smoke under
+  "Standard verification runs" and judge what an agent actually does with the
+  new text, not just whether the commands still pass.
+
+The frontmatter `description` is the only text an agent harness reads when
+deciding whether to load this skill: keep it dense - what this is, when to
+load it, and when not to.
+
 ## Cross-cutting facts
 
 1. **Run from the repo root.** Relative paths in `build-gba.ps1`, `gbarun.exe`
