@@ -44,7 +44,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from sprite_lib import bake, tile, pick, review, edit, emulate, xai, cost, util
+from sprite_lib import bake, bgbake, tile, pick, review, edit, emulate, xai, cost, util
 
 
 # ============================================================
@@ -332,10 +332,11 @@ def cmd_ui_bake(args) -> dict:
 
 
 def cmd_bg_bake(args) -> dict:
-    return bake.bake_bg(args.infile, args.out, args.name,
-                        colors=args.colors,
-                        dedup_flips=not args.no_flip_dedup,
-                        preview=not args.no_preview)
+    return bgbake.bake_bg(args.infile, args.out, args.name,
+                          colors=args.colors,
+                          palettes=args.palettes,
+                          dedup_flips=not args.no_flip_dedup,
+                          preview=not args.no_preview)
 
 
 def cmd_font_bake(args) -> dict:
@@ -791,7 +792,11 @@ def build_parser() -> argparse.ArgumentParser:
     bb.add_argument("--out", required=True)
     bb.add_argument("--name", required=True)
     bb.add_argument("--colors", type=int, default=15,
-                    help="palette size 1..15 (default 15; slot 0 stays the backdrop)")
+                    help="per-bank palette size 1..15 (default 15; slot 0 stays the backdrop)")
+    bb.add_argument("--palettes", type=int, default=1,
+                    help="palette banks 1..16 (default 1). >1 clusters tiles into "
+                         "independent banks via the map-entry palette bits -- the fix "
+                         "for multi-region images that bleed through one shared palette")
     bb.add_argument("--no-flip-dedup", action="store_true",
                     help="dedup exact tiles only; skip h/v-mirror matching")
     bb.add_argument("--no-preview", action="store_true",

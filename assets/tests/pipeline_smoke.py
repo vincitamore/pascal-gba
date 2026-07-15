@@ -571,6 +571,63 @@ def sc_bg_bake(td: Path) -> str:
     return f"{uniq} unique of 32, round-trip exact"
 
 
+def sc_bg_bake_multipal(td: Path) -> str:
+    from PIL import Image
+    # 24 flat 8x8 tiles in 24 distinct colors (12 red shades, 12 blue shades).
+    # One shared 15-color palette cannot hold them -- the single-palette bake
+    # must lose colors. Multi-palette banks must reproduce the image exactly,
+    # and bank-agnostic dedup must collapse the 24 tiles to <= 15 (flat tiles
+    # with the same index share data across banks).
+    src = td / "mp.png"
+    im = Image.new("RGB", (64, 24))
+    px = im.load()
+    for ty in range(3):
+        for tx in range(8):
+            shade = 40 + ((ty * 8 + tx) % 12) * 16
+            c = (shade, 8, 8) if tx < 4 else (8, 8, shade)
+            for y in range(8):
+                for x in range(8):
+                    px[tx * 8 + x, ty * 8 + y] = c
+    im.save(src)
+    out = td / "mp.inc"
+    code, rec, _, err = run_cli(td, [
+        "bg-bake", str(src), "--out", str(out), "--name", "MPB",
+        "--palettes", "4",
+    ])
+    _require(code == 0, f"bg-bake multipal: {err}")
+    banks = rec.get("palettes")
+    _require(isinstance(banks, int) and 2 <= banks <= 4, f"bank count {banks}")
+    _require(rec.get("tiles_degraded") == 0, f"degraded tiles: {rec.get('tiles_degraded')}")
+    _require(rec.get("colors_used") == 24, f"colors_used {rec.get('colors_used')}")
+    _require(rec.get("tiles_unique") <= 15, f"cross-bank dedup failed: {rec.get('tiles_unique')}")
+    # round-trip must match the color-universe quantize exactly (banks fixed the loss)
+    q = im.quantize(colors=60, method=Image.MEDIANCUT).convert("RGB")
+    pv = Image.open(rec["preview"]).convert("RGB")
+    diff = sum(1 for a, b in zip(q.getdata(), pv.getdata()) if a != b)
+    _require(diff == 0, f"multipal round-trip mismatch: {diff} px")
+    # emitted palette = banks * 16 contiguous slots; map entries carry bank bits
+    text = out.read_text()
+    m = re.search(r"MPB_PAL: array\[0\.\.(\d+)\]", text)
+    _require(m is not None and int(m.group(1)) == banks * 16 - 1,
+             f"PAL entries {m and m.group(1)} for {banks} banks")
+    _require(re.search(rf"MPB_PAL_BANKS\s*=\s*{banks}", text), "missing PAL_BANKS")
+    mm = re.search(r"MPB_MAP: array\[0\.\.\d+\] of Word = \((.*?)\);", text, re.S)
+    _require(mm is not None, "missing MAP array")
+    words = [int(w.strip().lstrip("$"), 16) for w in mm.group(1).replace("\n", " ").split(",")]
+    _require(any(w & 0xF000 for w in words), "no map entry uses palette-bank bits")
+    # the same image through one shared palette must be lossy (the bleed this fixes)
+    code1, rec1, _, err1 = run_cli(td, [
+        "bg-bake", str(src), "--out", str(td / "mp1.inc"), "--name", "MPS",
+    ])
+    _require(code1 == 0, f"bg-bake single: {err1}")
+    pv1 = Image.open(rec1["preview"]).convert("RGB")
+    diff1 = sum(1 for a, b in zip(im.getdata(), pv1.getdata()) if a != b)
+    _require(rec1.get("palettes") == 1, f"single-path banks {rec1.get('palettes')}")
+    _require(rec1.get("colors_used") <= 15, f"single-path colors {rec1.get('colors_used')}")
+    _require(diff1 > 0, "single palette was lossless on a 24-color image?")
+    return f"{banks} banks, 24 colors exact, {rec['tiles_unique']} tiles shared cross-bank"
+
+
 def sc_font_bake(td: Path) -> str:
     src = td / "font.png"
     cols, rows = 4, 2
@@ -1296,6 +1353,7 @@ SCENARIOS: list[tuple[str, Callable[..., str]]] = [
     ("anim.shared_palette", sc_anim),
     ("ui_bake.nine_slice", sc_ui_bake),
     ("bg_bake.tilemap", sc_bg_bake),
+    ("bg_bake.multipal", sc_bg_bake_multipal),
     ("font_bake.glyphs", sc_font_bake),
     ("tile.offset_seam", sc_tile_offset),
     ("tile.mirror_exact", sc_tile_mirror),

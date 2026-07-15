@@ -28,6 +28,7 @@ manifests/
 out/
 assets/manifests/
 assets/out/
+assets/_gen/
 
 # Reference-audio work area (never shipped: reference captures and
 # FIFO forensics carry commercial-ROM audio)

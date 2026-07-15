@@ -174,7 +174,7 @@ symptom of a broken workflow.
 | **UI nine-slice** | Panel chrome of 9 cells (corners + edges + center) for arbitrary-sized panels. | `sprite gen --template ui-nine-slice` -> `sprite ui-bake` | `.inc` (9 tiles + slicing metadata) | `sprites/ui/` |
 | **Portrait** | Head-and-shoulders for cutscene/dialog frames; ships via BG layer. | `sprite gen --template portrait` -> `sprite bake --linear` | `.inc` | `sprites/portraits/` |
 | **Font glyph bank** | Codepoint-indexed glyph `.inc` from an existing pixel-font sheet (AI font gen is a non-goal). | `sprite font-bake <sheet>` | `.inc` + codepoint-range metadata | `sprites/ui/font.inc` |
-| **BG tilemap** | Full image (hub background, title screen) as a deduplicated tile set + tilemap for text-BG modes. Flip-aware dedup encodes mirrors into map-entry flip bits. | `sprite bg-bake <image>` | `.inc` (tiles + `_MAP` + palette) + round-trip preview PNG | `sprites/bg/` |
+| **BG tilemap** | Full image (hub background, title screen) as a deduplicated tile set + tilemap for text-BG modes. Flip-aware dedup encodes mirrors into map-entry flip bits; `--palettes N` clusters tiles into up to 16 independent palette banks via the map-entry palette bits. | `sprite bg-bake <image>` | `.inc` (tiles + `_MAP` + palette bank(s)) + round-trip preview PNG | `sprites/bg/` |
 | **Manifest** | Per-asset JSON metadata (scale, faction, archetype, source refs, frame count, ledger fields). | `sprite manifest set` | JSON | `manifests/<asset>.json` |
 | **Canonical registry entry** | Cross-reference index: given faction + archetype + scale, find the canonical and its variants. | `sprite canonical set` / `sprite canonical variant` | `manifests/canonical.json` | `manifests/` |
 
@@ -356,6 +356,36 @@ picks how the bg color is sniffed when `--bg` is not pinned:
   subject fills the frame; matches the pixel-art convention that key
   owns the corners.
 - `modal` -- whole-image modal (legacy default).
+
+### Multi-palette BG bakes (region bleed)
+
+One 15-color palette across a full-screen image forces distinct regions
+(a night sky, a gold banner, a wooden stall) to compete for the same
+slots; the quantizer merges their colors and regions bleed into each
+other. Text-BG hardware selects one of 16 palette banks PER TILE through
+map-entry bits 12-15, so the fix is native: `bg-bake --palettes N`
+(2..16) clusters tiles into banks by color-set affinity and quantizes
+each bank independently -- up to N x 15 opaque colors per image.
+
+Mechanics worth knowing:
+
+- Bank assignment is greedy set-cover (largest tile color-sets first,
+  each absorbed by the bank that adds fewest new colors). When every
+  bank is full, the closest bank absorbs the overflow and re-quantizes;
+  the JSON record's `tiles_degraded` counts affected tiles -- zero means
+  the bake is pixel-exact against its color-universe quantize.
+- Tile data holds palette indices, the map entry holds the bank, so
+  identical index patterns share one tile across different banks (a
+  flat fill or a repeating dither pays for itself once).
+- The emitted `_PAL` is N contiguous 16-slot banks (slot 0 of each =
+  $0000): copy the whole array into BG palette RAM and hardware bank
+  offsets line up. `_PAL_BANKS` carries N.
+- Single-palette output (`--palettes 1`, the default) is unchanged:
+  compact palette, no bank bits.
+
+Use one shared palette for single-region images (a sky, a field); reach
+for banks when the round-trip preview shows regions stealing each
+other's colors.
 
 ### Retry doctrine for transient API errors
 
