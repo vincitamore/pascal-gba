@@ -66,6 +66,22 @@ the same id.
   wall-clock or uninitialized memory.
 - Game state advances only in `Update` — one fixed step per frame.
 
+## Replay regression (tools/regress.py)
+
+A `.case` file pins one deterministic replay run: the ROM, the replay
+script, and the sha256 of every artifact the replay produces. The
+runner deletes the ROM's `.sav` (cold cart), runs headless, and
+byte-compares:
+
+```
+python tools/regress.py test/regress/kit_demo.case      # verify (exit 1 on drift)
+python tools/regress.py --update test/regress/*.case    # re-pin after an intended change
+```
+
+Review every re-pin diff before committing it — an unexplained hash
+change IS the regression. One case per cart (or per game scene) is the
+working grain; `test/regress/kit_demo.case` is the example.
+
 ## Save pattern (recommended)
 
 `Kit_Save` provides primitives only; the schema is yours. The pattern

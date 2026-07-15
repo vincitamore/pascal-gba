@@ -1,0 +1,9 @@
+# Framework-kit demo: deterministic play field + stamped blocks.
+# The play scene is seeded (RngSeed 1), so these screenshots are
+# byte-stable across runs from a cold save.
+rom     test/kit_demo.gba
+replay  test/scripts/kit-demo.replay
+frames  300
+expect  bin/kitdemo_play.png  8fd0203b0b8594fc8a22fe36c36a66b935418826446066eed8344fd06dc2a99e
+expect  bin/kitdemo_stamped.png  078ff6c04d63468c91e1e00e5abb27f4454e7f9ab1d5477d5dd1d32841259d0e
+expect  bin/kitdemo_menu_back.png  eac7eb4ac598dd4af01a720e49de9471974cf730a7c68f5466608cccbe6112ae

@@ -165,6 +165,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\headless_smoke.ps1
 .\bin\gbarun.exe --rom test\audio_demo_cart.gba --frames 0            # ear check
 .\bin\gbarun.exe --rom test\audio_demo_cart.gba --headless --frames 600 --dump-audio bin\tune.wav
 #    tune data: tools\song.py test\songs\demo.song (docs\kit.md has the format)
+
+# 8. Replay regression: pinned-hash verification of deterministic replay runs:
+python tools\regress.py test\regress\kit_demo.case
+#    --update re-pins after an intended change; review the diff first.
 ```
 
 ## Cart-side coding discipline
