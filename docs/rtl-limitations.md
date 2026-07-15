@@ -120,7 +120,20 @@ itself. `apply.ps1` edits the RTL source in place; the subsequent RTL build
 step compiles the patched tree, and the ordinary `-Tgba` build flow then
 links against the result.
 
-## Licensing
+## Large typed consts land in IWRAM unless {$J-}
+
+FPC's default `{$J+}` (writeable typed constants) places typed consts in
+the `.data` section, whose initial image is copied from ROM into IWRAM at
+startup. IWRAM is 32 KB: a cart that includes baked art as typed const
+arrays (one full-screen 240x160 4bpp image is ~19 KB) overflows the
+region at link time with a `region 'iwram' overflowed` error — or worse,
+several smaller assets fit but silently eat the RAM your stack and
+globals need.
+
+Put `{$J-}` at the top of any cart that embeds asset data. Read-only
+typed consts go to `.rodata`, which stays in ROM and costs no RAM at
+all. The GBA ROM bus is fast enough that reading pixel data straight
+from ROM is not a bottleneck for blit-style rendering.
 
 FPC's RTL is distributed under a modified LGPL (see FPC's `COPYING.FPC`)
 that permits linking without imposing LGPL's obligations on the linking
