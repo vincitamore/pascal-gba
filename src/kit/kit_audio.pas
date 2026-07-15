@@ -1,32 +1,25 @@
 unit Kit_Audio;
 {
-  PSG audio driver for cart code: sound effects + a vblank-stepped
-  two-track music sequencer.
+  PSG + DirectSound audio driver for cart code: sound effects, a
+  vblank-stepped two-track music sequencer, and short PCM sample
+  playback (voice bites, one-shots) over FIFO A.
 
   Channel plan (no contention by construction):
 
-    ch1 (square + sweep)  sound effects — the sweep unit gives zips
-                          and boings for free
+    ch1 (square + sweep)  effects
     ch2 (square)          music lead
     ch4 (noise)           music percussion
+    FIFO A + Timer 0 + DMA1   PCM samples
 
-  ch3 (wave) is left untouched for future use.
+  ch3 (wave) and FIFO B are left untouched for future use.
 
   Frame shape: call AudioInit once at boot, MusicTick once per frame
-  (with InputUpdate/SceneTick). SFX are one-shot — each call retriggers
-  ch1 immediately; the hardware envelope decays it, so no per-frame SFX
-  upkeep exists.
+  (with InputUpdate/SceneTick). SFX are one-shot. SamplePlay arms
+  DMA1 + Timer 0; MusicTick ends the sample when its frame budget
+  expires.
 
-  Music notes are "plucky": each note retriggers ch2 with a decaying
-  envelope, rests simply let it ring out. That keeps song data down to
-  (note, duration) pairs — no explicit note-off events. Percussion
-  hits retrigger ch4 the same way.
-
-  Song data comes from tools/song.py (text score -> Pascal include);
-  see docs/kit.md. Hand-written arrays work identically.
-
-  All registers are written with 16-bit stores. Nothing here touches
-  the direct-sound FIFOs or timers.
+  Song data: tools/song.py. PCM samples: tools/voice.py (WAV ->
+  signed 8-bit .inc). See docs/kit.md.
 }
 
 {$mode objfpc}{$H+}
@@ -77,6 +70,15 @@ procedure MusicStop;
 procedure MusicTick;                 { once per frame }
 function  MusicPlaying: Boolean;
 
+{ ── DirectSound samples (FIFO A + Timer 0 + DMA1) ── }
+
+{ data points at signed 8-bit PCM (rateHz typically 8192..22050).
+  Length should be a multiple of 4 (voice.py pads). Playback is
+  one-shot; a new SamplePlay replaces any in-flight sample. }
+procedure SamplePlay(data: PShortInt; len: Integer; rateHz: Integer);
+procedure SampleStop;
+function  SamplePlaying: Boolean;
+
 implementation
 
 const
@@ -93,6 +95,28 @@ const
 
   REG_SOUND4CNT_L = $04000078;
   REG_SOUND4CNT_H = $0400007C;
+
+  REG_FIFO_A      = $040000A0;
+
+  REG_DMA1SAD     = $040000BC;
+  REG_DMA1DAD     = $040000C0;
+  REG_DMA1CNT_L   = $040000C4;
+  REG_DMA1CNT_H   = $040000C6;
+
+  REG_TM0CNT_L    = $04000100;
+  REG_TM0CNT_H    = $04000102;
+
+  { DMA1 sound-FIFO control: dest fixed, src inc, repeat, 32-bit,
+    special timing, enable. Count is ignored (hardware always moves
+    4 words per FIFO request). }
+  DMA1_SOUND_CTRL = $B640;
+
+  { SOUNDCNT_H (gbatek): bits 0-1 PSG vol, bit 2 DMA-A vol 100%,
+    bits 8/9 enable A right/left, bit 10 timer select (0=T0),
+    bit 11 FIFO-A reset. }
+  SNDH_PSG        = $0002;   { PSG 100% }
+  SNDH_DSA_FULL   = $0304;   { A vol 100% + enable L+R, timer 0 }
+  SNDH_DSA_RESET  = $0800;   { FIFO A reset (write-1 pulse) }
 
   { Square frequency register values, chromatic C3..B6 (index 1..48).
     n = 2048 - 131072/f, equal temperament, A4 = 440. }
@@ -128,12 +152,17 @@ var
   mLeadIdx, mNoiseIdx:     Integer;
   mLeadWait, mNoiseWait:   Integer;
 
+  sPlaying:    Boolean = False;
+  sFramesLeft: Integer = 0;
+
 procedure AudioInit;
 begin
   PWord(REG_SOUNDCNT_X)^ := $0080;   { master enable }
   { Route ch1 + ch2 + ch4 to both sides, master volume 7/7. }
   PWord(REG_SOUNDCNT_L)^ := $BB77;
-  PWord(REG_SOUNDCNT_H)^ := $0002;   { PSG mix 100% }
+  PWord(REG_SOUNDCNT_H)^ := SNDH_PSG;   { PSG mix 100%; FIFO off }
+  sPlaying := False;
+  sFramesLeft := 0;
 end;
 
 { ── SFX ── }
@@ -246,6 +275,75 @@ begin
   Result := mPlaying;
 end;
 
+procedure SampleStop;
+begin
+  { Disable DMA1 then Timer 0 so FIFO drains and stops requesting. }
+  PWord(REG_DMA1CNT_H)^ := 0;
+  PWord(REG_TM0CNT_H)^ := 0;
+  { Drop DirectSound A enables; keep PSG mix. }
+  PWord(REG_SOUNDCNT_H)^ := SNDH_PSG;
+  sPlaying := False;
+  sFramesLeft := 0;
+end;
+
+function SamplePlaying: Boolean;
+begin
+  Result := sPlaying;
+end;
+
+procedure SamplePlay(data: PShortInt; len: Integer; rateHz: Integer);
+var
+  reload: Word;
+  frames: Integer;
+  i: Integer;
+  packed4: LongWord;
+  p: PByte;
+begin
+  if (data = nil) or (len < 4) or (rateHz < 1024) then Exit;
+
+  SampleStop;   { cancel any in-flight sample cleanly }
+
+  { Timer 0 overflow rate = sample rate. reload = 65536 - 16.78M/rate. }
+  reload := Word(65536 - (16777216 div rateHz));
+
+  { Arm DMA1: source = sample, dest = FIFO A, special-timing refill. }
+  PLongWord(REG_DMA1SAD)^ := LongWord(Pointer(data));
+  PLongWord(REG_DMA1DAD)^ := REG_FIFO_A;
+  PWord(REG_DMA1CNT_L)^ := 4;
+  PWord(REG_DMA1CNT_H)^ := 0;           { ensure edge on next enable }
+
+  { Reset FIFO A, enable DirectSound A both speakers at full volume. }
+  PWord(REG_SOUNDCNT_H)^ := SNDH_PSG or SNDH_DSA_FULL or SNDH_DSA_RESET;
+  PWord(REG_SOUNDCNT_H)^ := SNDH_PSG or SNDH_DSA_FULL;
+
+  { Pre-fill the 32-byte FIFO so the first pops are not underruns. }
+  p := PByte(data);
+  for i := 0 to 7 do
+  begin
+    packed4 := LongWord(p[0]) or (LongWord(p[1]) shl 8)
+               or (LongWord(p[2]) shl 16) or (LongWord(p[3]) shl 24);
+    PLongWord(REG_FIFO_A)^ := packed4;
+    Inc(p, 4);
+  end;
+
+  { Enable DMA after the pre-fill so the first low-water refill has a
+    valid source pointer past the pre-filled prefix. Restart SAD at the
+    byte after the pre-fill (32 bytes). }
+  PLongWord(REG_DMA1SAD)^ := LongWord(Pointer(data)) + 32;
+  PWord(REG_DMA1CNT_H)^ := DMA1_SOUND_CTRL;
+
+  { Start Timer 0 — each overflow pops one FIFO sample. }
+  PWord(REG_TM0CNT_L)^ := reload;
+  PWord(REG_TM0CNT_H)^ := $0080;   { enable, cascade off, F/1 }
+
+  { Frame budget: sample duration in 60 fps ticks, plus a short pad so
+    the last DMA refill can drain. }
+  frames := (LongInt(len) * 60 + rateHz - 1) div rateHz + 4;
+  if frames < 4 then frames := 4;
+  sFramesLeft := frames;
+  sPlaying := True;
+end;
+
 procedure MusicTick;
 var
   ev: PSongEvent;
@@ -260,6 +358,14 @@ begin
       PWord(REG_SOUND4CNT_L)^ := $9100;        { vol 9, faster decay }
       PWord(REG_SOUND4CNT_H)^ := $803C;        { shift 3, 7-bit: the snap }
     end;
+  end;
+
+  { Sample end countdown — stop DMA/timer when the PCM is spent. }
+  if sPlaying then
+  begin
+    Dec(sFramesLeft);
+    if sFramesLeft <= 0 then
+      SampleStop;
   end;
 
   if not mPlaying then Exit;

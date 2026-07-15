@@ -14,7 +14,7 @@ Current units:
 | `Kit_Rng` | seeded deterministic xorshift32 | yes (`test_kit`) |
 | `Kit_Fixed` | 24.8 fixed-point arithmetic | yes (`test_kit`) |
 | `Kit_Save` | byte-wide SRAM access, verified writes, checksum | checksum yes; SRAM via demo cart |
-| `Kit_Audio` | PSG sound effects + two-track music sequencer | demo cart + wav analysis |
+| `Kit_Audio` | PSG SFX + music sequencer + DirectSound samples | demo carts + wav / FIFO forensics |
 | `Kit_Bg` | text-BG setup, bg-bake loading (multi-bank palettes, 64-wide maps), scrolling | demo cart + `test_ppu` wide-map case |
 | `Kit_Obj` | OAM shadow manager: hidden cold-init, attribute setters, vblank commit, OBJ loaders | demo cart |
 | `Kit_Text` | tile-grid text from a font-bake glyph bank | demo cart |
@@ -151,6 +151,34 @@ channel the moment it would pass 2047. Aggressive upward sweeps (small
 shift, high start frequency) mute the voice within milliseconds —
 sweep up gently (shift 6-7) from mid-range notes, or skip the sweep
 near the register ceiling.
+
+### DirectSound samples (FIFO A)
+
+Short PCM voice bites and one-shots ride FIFO A + Timer 0 + DMA1,
+alongside the PSG music (no channel conflict). API:
+
+```pascal
+SamplePlay(@SampleHiData[0], SampleHiLen, SampleHiRate);
+{ ... MusicTick each frame advances the sample frame budget ... }
+if not SamplePlaying then { sample finished };
+SampleStop;   { cancel early }
+```
+
+WAV authoring path — `tools/voice.py`:
+
+```
+python tools/voice.py bite.wav -o bite.inc --name Hi --rate 16384
+```
+
+Emits a signed 8-bit PCM Pascal include (4-byte padded for DMA word
+packing). Demo cart: `test/sample_demo.pp` (synthetic chirp at
+`test/samples/hi.inc`). Rate 8192..22050 Hz is the practical range;
+16384 is the default tradeoff of clarity vs ROM size.
+
+SOUNDCNT_H layout (load-bearing — wrong bits select the wrong timer
+and mute the stream): bits 0-1 PSG volume, bit 2 DMA-A 100% volume,
+bits 8/9 enable A right/left, bit 10 timer select (0 = Timer 0),
+bit 11 FIFO-A reset pulse.
 
 ## Backgrounds, sprites, text (Kit_Bg / Kit_Obj / Kit_Text)
 

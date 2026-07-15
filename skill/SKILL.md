@@ -166,6 +166,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\headless_smoke.ps1
 .\bin\gbarun.exe --rom test\audio_demo_cart.gba --headless --frames 600 --dump-audio bin\tune.wav
 #    tune data: tools\song.py test\songs\demo.song (docs\kit.md has the format)
 
+# 7b. Kit DirectSound sample demo (FIFO A + Timer 0 + DMA1):
+.\build-gba.ps1 test\sample_demo
+.\bin\gbarun.exe --rom test\sample_demo.gba --headless --frames 120 --dump-audio bin\sample.wav
+#    expect FIFO-A pushes >> 32 and DMA1 transfers; A replays, B stops.
+#    sample data: tools\voice.py <wav> -o test\samples\hi.inc --name Hi
+
 # 8. Mode-0 kit demo (multi-palette scrolling BG + OAM sprite + text HUD):
 .\build-gba.ps1 test\mode0_demo
 .\bin\gbarun.exe --rom test\mode0_demo.gba --headless --frames 400 --replay test\scripts\mode0-demo.replay
@@ -188,10 +194,12 @@ powershell -File tools\mgba-shot.ps1 -Rom test\mode0_demo.gba -Out bin\mgba.png
 Cart code is `{$mode objfpc}{$H+}` Pascal compiled with `-Tgba`. Real carts
 build on the framework kit (`src\kit\`: scene machine, input edge-detect,
 seeded RNG, fixed-point, SRAM save, PSG audio driver + `tools\song.py`
-score authoring, text-BG loader + scroll, OAM sprite manager, tile-grid
-text — `docs\kit.md` has the unit reference, frame shape, add-a-game
-recipe, determinism rules, and the score format). The RTL rules
-that bite are documented with full rationale in `docs\`:
+score authoring, DirectSound sample playback via `SamplePlay` +
+`tools\voice.py` (WAV -> signed 8-bit `.inc`), text-BG loader + scroll,
+OAM sprite manager, tile-grid text — `docs\kit.md` has the unit reference,
+frame shape, add-a-game recipe, determinism rules, score format, and
+sample path). The RTL rules that bite are documented with full rationale
+in `docs\`:
 
 - **Debug logging** (`docs\debugging.md`): `uses Gba_Dbg`, `DbgLogStr` with
   STATIC strings only; call `DbgLogWaitConsumed` between two logs on the same
