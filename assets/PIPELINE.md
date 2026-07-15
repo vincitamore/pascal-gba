@@ -398,6 +398,38 @@ Use one shared palette for single-region images (a sky, a field); reach
 for banks when the round-trip preview shows regions stealing each
 other's colors, and add a tile budget when the 1024-tile guard trips.
 
+### Asset hygiene (keep the trees walkable)
+
+Art accumulates fast: every bake emits previews, every replay drops
+screenshots, every generation leaves a source. Without a standing
+shape, the consumer's art folder becomes an undifferentiated heap.
+
+Consumer-project layout (one folder per artifact class):
+
+```
+<consumer>/
+├── art/
+│   ├── src/       # generation sources: canonical stills, curated
+│   │              # video frames, composited intermediates worth keeping
+│   ├── bg/        # BG bakes (.inc + preview) -- tilemaps, full-screens
+│   └── sprites/   # OBJ/blit sprite bakes (.inc + previews)
+└── shots/         # replay screenshots + debug logs (run artifacts,
+                   # never mixed in with assets)
+```
+
+End-of-wave tidy (same change as the wave's last bake):
+
+- Canonical sources move from the staging dir (`_gen/`) into the
+  consumer's `art/src/`; staging intermediates (frame dumps, contact
+  sheets, pick records, thumbnails) are deleted -- the prompt cache
+  and the kept canonicals make them reproducible.
+- Superseded bakes and their previews are deleted, not left beside
+  their replacements (version control remembers).
+- Replay outputs land in `shots/` only; regression `.case` files point
+  there.
+
+The staging dir is scratch: empty between waves is its healthy state.
+
 ### Retry doctrine for transient API errors
 
 The xAI Imagine endpoints intermittently return 500/502/503/504

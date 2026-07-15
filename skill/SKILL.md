@@ -250,6 +250,11 @@ Bakers: `bake`/`anim` (OBJ sprites), `tile` (seamless terrain), `ui-bake`
 (full image -> deduplicated BG tile set + tilemap + palette for text-BG
 modes; mirror tiles dedup through the map-entry flip bits, and a round-trip
 preview PNG proves the bake reconstructs the quantized source exactly).
+Consumer projects keep art walkable: `art/src` (generation sources),
+`art/bg` (BG bakes), `art/sprites` (OBJ bakes), `shots/` (replay
+screenshots + logs); the staging dir is scratch and empties at the end
+of every production wave (`PIPELINE.md`, Asset hygiene).
+
 `bg-bake --palettes N` (2..16) clusters tiles into independent 16-color
 palette banks via the map-entry palette bits -- the fix for multi-region
 images (night sky + gold banner) that bleed through one shared 15-color

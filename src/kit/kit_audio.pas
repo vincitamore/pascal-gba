@@ -63,8 +63,10 @@ procedure SfxDrop;      { falling zip — put something down }
 procedure SfxPop;       { short high pop }
 procedure SfxBoing;     { comedic soft-fail bounce }
 procedure SfxSparkle;   { high shimmer — reward tick }
-procedure SfxCrunch;    { noise munch — eating, impacts. Rides ch4, so it
+procedure SfxCrunch;    { two-stage noise bite — eating, impacts. Rides
+                          ch4 (second stage fires via MusicTick), so it
                           replaces one percussion tick when music plays }
+procedure SfxSizzle;    { soft long frying hiss on ch4 }
 
 { ── Music sequencer (ch2 lead + ch4 noise) ── }
 
@@ -121,6 +123,7 @@ var
   mNoiseCount: Integer = 0;
   mLoop:       Boolean = False;
   mPlaying:    Boolean = False;
+  crunchDelay: Integer = 0;
 
   mLeadIdx, mNoiseIdx:     Integer;
   mLeadWait, mNoiseWait:   Integer;
@@ -184,10 +187,20 @@ end;
 
 procedure SfxCrunch;
 begin
-  { Low-pitched noise burst on ch4: volume 11, decreasing, step 2,
-    slower divider than the music hat for a chewy rattle. }
-  PWord(REG_SOUND4CNT_L)^ := $B200;
-  PWord(REG_SOUND4CNT_H)^ := $8048;
+  { Two-stage bite on ch4: a deep 15-bit "cr-" burst now, and MusicTick
+    fires the snappier 7-bit "-unch" a few frames later. One register
+    poke alone reads as a hat tick, not eating. }
+  PWord(REG_SOUND4CNT_L)^ := $C200;            { vol 12, decay step 2 }
+  PWord(REG_SOUND4CNT_H)^ := $8054;            { shift 5, 15-bit, ratio 4 }
+  crunchDelay := 5;
+end;
+
+procedure SfxSizzle;
+begin
+  { Gentle high hiss with a long decay: 15-bit width, fast clock,
+    modest volume — reads as frying, not percussion. }
+  PWord(REG_SOUND4CNT_L)^ := $7400;            { vol 7, decay step 4 }
+  PWord(REG_SOUND4CNT_H)^ := $8010;            { shift 1, 15-bit }
 end;
 
 { ── Music ── }
@@ -238,6 +251,17 @@ var
   ev: PSongEvent;
   trackDone: Boolean;
 begin
+  { Crunch second stage runs with or without music. }
+  if crunchDelay > 0 then
+  begin
+    Dec(crunchDelay);
+    if crunchDelay = 0 then
+    begin
+      PWord(REG_SOUND4CNT_L)^ := $9100;        { vol 9, faster decay }
+      PWord(REG_SOUND4CNT_H)^ := $803C;        { shift 3, 7-bit: the snap }
+    end;
+  end;
+
   if not mPlaying then Exit;
   trackDone := False;
 

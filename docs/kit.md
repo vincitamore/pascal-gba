@@ -119,8 +119,11 @@ construction; ch3 (wave) stays free.
 - `AudioInit` once at boot; `MusicTick` once per frame next to
   `InputUpdate`/`SceneTick`.
 - SFX are one-shot hardware-envelope voices: `SfxTap`, `SfxGrab`,
-  `SfxDrop`, `SfxPop`, `SfxBoing`, `SfxSparkle`, `SfxCrunch` (noise
-  munch on ch4 — replaces one percussion tick when music plays), or raw
+  `SfxDrop`, `SfxPop`, `SfxBoing`, `SfxSparkle`, `SfxCrunch` (two-stage
+  noise bite on ch4 — a deep burst now, a snappier one a few frames
+  later via `MusicTick`, which runs the second stage with or without
+  music; replaces one percussion tick when music plays), `SfxSizzle`
+  (soft long frying hiss, also ch4), or raw
   `SfxPlay(sweep, env, freq)` on ch1.
 - Music notes are plucky (retrigger + envelope decay), so song data is
   just (note, duration-in-frames) pairs — no note-off events.

@@ -106,25 +106,41 @@ def _prepare_single(im: Image.Image, W: int, H: int,
             crop = util.aspect_pad_box((x0, y0, x1, y1), im.size, (W, H), margin)
             im = im.crop(crop)
     small = im.resize((W, H), filt)
-    q = small.quantize(colors=colors, method=Image.MEDIANCUT).convert("RGB")
     is_bg = util.make_bg_test(bg, bg_tol, chroma=chroma)
+    sp = small.load()
+    # Quantize from FOREGROUND pixels only, dither-free. Feeding the whole
+    # canvas to the quantizer let key-color variants eat the palette budget
+    # whenever the subject sat in a padded frame (a square-baked tall
+    # subject lost half its colors to magenta shades it never renders).
+    fg: list[tuple[int, int, int]] = []
+    for y in range(H):
+        for x in range(W):
+            if not is_bg(sp[x, y]):
+                fg.append(sp[x, y])
+    if not fg:
+        raise ValueError("bake_single: no foreground pixels after crop; bg_tol too high?")
+    strip = Image.new("RGB", (len(fg), 1))
+    strip.putdata(fg)
+    q = strip.quantize(colors=colors, method=Image.MEDIANCUT,
+                       dither=Image.NONE).convert("RGB")
+    qdata = list(q.getdata())
     palette: list[tuple[int, int, int]] = []
     idx: dict[tuple[int, int, int], int] = {}
     indices: list[int] = []
-    sp = small.load()
-    qp = q.load()
+    k = 0
     for y in range(H):
         for x in range(W):
             if is_bg(sp[x, y]):
                 indices.append(0)
                 continue
-            c = qp[x, y]
+            c = qdata[k]
+            k += 1
             slot = idx.get(c)
             if slot is None:
                 if len(palette) >= 15:
                     # snap to nearest existing slot rather than overflow
                     slot = 1 + min(range(len(palette)),
-                                   key=lambda i: sum((palette[i][k] - c[k]) ** 2 for k in range(3)))
+                                   key=lambda i: sum((palette[i][m] - c[m]) ** 2 for m in range(3)))
                 else:
                     palette.append(c)
                     slot = len(palette)
@@ -150,12 +166,19 @@ def bake_anim(frames: Sequence[str | Path],
               chroma: bool = True,
               obj: bool = True,
               preview: bool = True,
+              resample: str = "nearest",
               gif_ms: int = 110) -> dict:
     """Bake N frames to a single GBA 4bpp animation .inc.
 
     Shared-palette + common-canvas guarantees: every frame quantizes through the
     same <=15-color palette (no flicker), and every frame is cropped to the union
     bbox aspect-padded to target (no jitter).
+
+    `resample` picks the downscale filter (nearest | box | lanczos).
+    Nearest keeps hard pixel edges but samples arbitrarily at extreme
+    reductions -- small dark features (eyes) alias differently per
+    frame. Box area-averages, preserving small features; the shared
+    quantize re-crisps the result. Try box when faces mush at 16px.
     """
     out = Path(out)
     W, H = size
@@ -181,7 +204,10 @@ def bake_anim(frames: Sequence[str | Path],
         raise ValueError("bake_anim: no foreground pixels detected; bg_tol too high?")
     canvas = util.aspect_pad_box(tuple(U), imgs[0].size, (W, H), margin)
 
-    smalls = [im.crop(canvas).resize((W, H), Image.NEAREST) for im in imgs]
+    filt = {"nearest": Image.NEAREST,
+            "box": Image.BOX,
+            "lanczos": Image.LANCZOS}[resample]
+    smalls = [im.crop(canvas).resize((W, H), filt) for im in imgs]
 
     rec = _quantize_and_pack(
         smalls, W, H, name, out,

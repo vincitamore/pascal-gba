@@ -368,6 +368,7 @@ def cmd_anim(args) -> dict:
                           chroma=not args.no_chroma,
                           obj=not args.linear,
                           preview=not args.no_preview,
+                          resample=args.resample,
                           gif_ms=args.gif_ms)
 
 
@@ -753,6 +754,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--colors", type=int, default=15)
     a.add_argument("--margin", type=int, default=2)
     a.add_argument("--no-chroma", action="store_true")
+    a.add_argument("--resample", default="nearest",
+                   choices=["nearest", "box", "lanczos"],
+                   help="downscale filter. box area-averages -- preserves small "
+                        "features (eyes) at extreme reductions where nearest "
+                        "aliases them away; the shared quantize re-crisps")
     a.add_argument("--linear", action="store_true",
                    help="scanline order (default: GBA OBJ tile order)")
     a.add_argument("--no-preview", action="store_true")
