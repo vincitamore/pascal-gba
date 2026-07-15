@@ -243,29 +243,35 @@ begin
       '15 press START' + LineEnding);
     CheckBool('LoadScript succeeds', True, re.LoadScript(path));
 
+    { Mirror the runner's real per-frame order: kbd.Update FIRST (it
+      asserts the all-released baseline every frame), then Tick. A
+      Tick-only loop would hide the hold-evaporation bug where a
+      scripted press survived just its own event frame. }
+
     { Pre-event state: nothing pressed. }
-    for frame := 0 to 4 do re.Tick(frame);
+    for frame := 0 to 4 do begin kbd.Update; re.Tick(frame); end;
     CheckEqHex('frame 4 KEYINPUT = $03FF', $03FF,
                mem.ReadHalf($04000130));
 
     { Frame 5: A pressed (bit 0 clears). }
-    re.Tick(5);
+    kbd.Update; re.Tick(5);
     CheckEqHex('frame 5 A-pressed = $03FE', $03FE,
                mem.ReadHalf($04000130));
 
-    { Frames 6-9: still pressed. }
-    for frame := 6 to 9 do re.Tick(frame);
+    { Frames 6-9: still pressed — the hold must survive kbd.Update's
+      per-frame baseline on the non-event frames. }
+    for frame := 6 to 9 do begin kbd.Update; re.Tick(frame); end;
     CheckEqHex('frame 9 still A-pressed', $03FE,
                mem.ReadHalf($04000130));
 
     { Frame 10: A released. }
-    re.Tick(10);
+    kbd.Update; re.Tick(10);
     CheckEqHex('frame 10 A-released = $03FF', $03FF,
                mem.ReadHalf($04000130));
 
     { Frame 15: START pressed (bit 3 clears, $03FF and not $08 = $03F7). }
-    for frame := 11 to 14 do re.Tick(frame);
-    re.Tick(15);
+    for frame := 11 to 14 do begin kbd.Update; re.Tick(frame); end;
+    kbd.Update; re.Tick(15);
     CheckEqHex('frame 15 START-pressed = $03F7', $03F7,
                mem.ReadHalf($04000130));
 

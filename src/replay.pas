@@ -59,8 +59,10 @@ unit Replay;
 
   Construct with a TGbaInput; call `LoadScript` to populate; call
   `Tick(frame)` once per frame BEFORE the scanline loop. Tick applies
-  any events scheduled for that frame and writes the resulting
-  KEYINPUT mask via `input.OverrideKeyState`.
+  any events scheduled for that frame and writes the current KEYINPUT
+  mask via `input.OverrideKeyState` — every frame while the script is
+  active, so scripted holds survive kbd.Update's per-frame all-released
+  baseline (not just on event frames).
 
   Records are the inverse: when Recording=True, Tick samples the
   current KEYINPUT state and diffs against the previous sample to
@@ -490,7 +492,15 @@ begin
 
   if FNextIdx >= FEventCount then FFinished := True;
 
-  if changed and (FInput <> nil) then
+  { Push the mask EVERY frame while the script is active, not only on
+    event frames. kbd.Update asserts the all-released baseline each
+    frame before Tick runs, so a one-shot override on the event frame
+    would let a scripted hold evaporate after a single frame (headless
+    runs have no live keyboard to reassert it — a `press`/`release`
+    pair would act as a 1-frame tap). While unfinished the script owns
+    KEYINPUT; `changed` keeps the final event's own frame covered, then
+    live input resumes. }
+  if (FInput <> nil) and ((not FFinished) or changed) then
     FInput.OverrideKeyState(FState);
 
   { Recording — sample the LIVE KEYINPUT register and emit diff events

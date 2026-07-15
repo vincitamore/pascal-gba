@@ -144,6 +144,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\headless_smoke.ps1
 
 # 4. OBJ render path against the shipped generated test sprite:
 .\bin\sprite_smoke.exe     # writes bin\sprite_f0..f3.ppm
+
+# 5. Real-device / third-party-core verification cart (boot, input echo,
+#    PSG blip per key, SRAM boot counter with read-back verify):
+.\build-gba.ps1 test\device_smoke
+.\bin\gbarun.exe --rom test\device_smoke.gba --headless --frames 300 --screenshot bin\smoke.png
+#    run twice: BOOT count increments via test\device_smoke.sav; screen
+#    shows SAVE NEW on first boot, SAVE OK after. Copy the .gba to a
+#    device or another emulator to smoke-test it the same way.
+#    test\scripts\device-smoke.replay exercises the input echo + blips.
 ```
 
 ## Cart-side coding discipline
@@ -154,7 +163,11 @@ that bite are documented with full rationale in `docs\`:
 - **Debug logging** (`docs\debugging.md`): `uses Gba_Dbg`, `DbgLogStr` with
   STATIC strings only; call `DbgLogWaitConsumed` between two logs on the same
   code path; promote locals that must survive a log call to unit-level vars
-  (caller-saved-register clobber).
+  (caller-saved-register clobber). CAUTION for carts that also run on real
+  hardware or third-party emulators: nothing clears the ready byte there, so
+  an unbounded `DbgLogWaitConsumed` hangs the cart — use a bounded wait
+  (spin on the ready byte with a frame cap; see `test\device_smoke.pp`'s
+  `DbgFlushBounded`).
 - **No `Format()`/`IntToStr`/`Str()` in cart code** (`docs\rtl-limitations.md`):
   the `-Tgba` RTL's numeric formatting is broken; build strings by explicit
   char assignment or pre-built variants.

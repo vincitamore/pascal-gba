@@ -1,0 +1,16 @@
+# device_smoke exercise: hold three keys in turn, capture each lit
+# state, and let the boot jingle + key blips land in an audio dump.
+# Frame numbers are emulator frames (bundled BIOS boots in ~60).
+#
+# Run: .\bin\gbarun.exe --rom test\device_smoke.gba --headless --frames 300 ^
+#        --replay test\scripts\device-smoke.replay --dump-audio bin\smoke_audio.wav
+
+100  press      A
+110  screenshot bin/smoke_a.png
+115  release    A
+130  press      DOWN
+140  screenshot bin/smoke_down.png
+145  release    DOWN
+160  press      START
+170  screenshot bin/smoke_start.png
+175  release    START

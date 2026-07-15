@@ -94,6 +94,15 @@ worst case is one frame of latency before the next write is safe to issue.
 For per-frame narration where at most one message can fire per game frame,
 no wait is needed, since there's nothing else in flight to overwrite.
 
+One hard caveat: the wait is unbounded, and only this emulator's poll ever
+clears the ready byte. On real hardware or under any other emulator the
+byte stays set forever and `DbgLogWaitConsumed` spins the cart into a
+permanent hang. A cart that must also run off-emulator should use a
+bounded wait instead: spin on the ready byte with a frame cap, giving up
+after a few vblanks. `test/device_smoke.pp`'s `DbgFlushBounded` is the
+reference shape — full narration under the emulator, a few wasted frames
+anywhere else.
+
 ## Footgun 2: register clobber across the call
 
 `DbgLogStr` and `DbgLogWaitConsumed` are ordinary Pascal procedure calls.
