@@ -10,9 +10,9 @@ Score format (one directive per line, '#' comments):
     noise: x:4 r:4 x:4 r:4 ...
 
 Notes are name+octave (c, cs/c#, d, ds/d#, e, f, fs/f#, g, gs/g#, a,
-as/a#, b; octaves 3-6), 'r' is a rest, 'x' is a percussion hit (noise
-track only). Durations are sixteenth notes. Multiple lead:/noise:
-lines concatenate.
+as/a#, b; octaves 3-6), 'r' is a rest. Noise-track hits: 'h' soft hat,
+'x' normal (legacy default), 'X'/'!' accent kick. Durations are
+sixteenth notes. Multiple lead:/noise: lines concatenate.
 
 Durations are converted to frames (60 fps) with cumulative rounding,
 so long songs do not drift from the stated tempo even when a sixteenth
@@ -35,15 +35,18 @@ FRAMES_PER_MINUTE = 3600.0  # 60 fps
 
 
 def parse_note(tok: str, track: str, lineno: int) -> int:
-    """Return the Kit_Audio note index (0 = rest)."""
+    """Return the Kit_Audio note index (0 = rest; noise accent 1..3)."""
     if tok == 'r':
         return 0
-    if tok == 'x':
+    if tok in ('x', 'X', '!', 'h'):
         if track != 'noise':
-            raise SystemExit(f"line {lineno}: 'x' is only valid on the noise track")
-        return 1  # any nonzero value is a hit
+            raise SystemExit(f"line {lineno}: '{tok}' is only valid on the noise track")
+        # 1=soft, 2=normal (legacy 'x'), 3=accent — Kit_Audio volume ladder
+        return {'x': 2, 'X': 3, '!': 3, 'h': 1}[tok]
     if track == 'noise':
-        raise SystemExit(f"line {lineno}: noise track only takes 'x' and 'r', got '{tok}'")
+        raise SystemExit(
+            f"line {lineno}: noise track only takes x/X/!/h and r, got '{tok}'"
+        )
 
     name = tok[:-1]
     octave = tok[-1]
@@ -84,7 +87,9 @@ def parse_score(path: Path):
                 if ':' not in tok:
                     raise SystemExit(f"line {lineno}: '{tok}' needs note:duration")
                 note_s, dur_s = tok.rsplit(':', 1)
-                note = parse_note(note_s.lower(), track, lineno)
+                # preserve case for noise accents (x/X/!); lead notes lowercased
+                note_key = note_s if track == 'noise' else note_s.lower()
+                note = parse_note(note_key, track, lineno)
                 dur = int(dur_s)
                 if dur < 1:
                     raise SystemExit(f"line {lineno}: duration must be >= 1")

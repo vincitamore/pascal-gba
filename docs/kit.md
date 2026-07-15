@@ -135,7 +135,7 @@ song  demo
 tempo 140
 loop  on
 lead:  c4:2 e4:2 g4:2 c5:4 r:2
-noise: x:4 x:4
+noise: X:4 h:4 x:4 h:4   # X=accent, h=soft, x=normal
 ```
 
 `python tools/song.py score.song` writes a Pascal include with

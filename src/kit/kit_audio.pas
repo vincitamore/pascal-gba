@@ -27,8 +27,9 @@ unit Kit_Audio;
 interface
 
 type
-  { One sequencer event: note index into NoteFreq (0 = rest; for the
-    noise track any nonzero value is a hit), then duration in frames. }
+  { One sequencer event: note index into NoteFreq (0 = rest). On the
+    noise track the note value is a hit accent: 1 = soft, 2 = normal,
+    3 = accent (louder). Duration is frames. }
   TSongEvent = packed record
     note: Byte;
     dur:  Byte;
@@ -242,9 +243,19 @@ begin
 end;
 
 procedure TriggerNoise(note: Byte);
+var
+  env: Word;
 begin
   if note = NOTE_REST then Exit;
-  PWord(REG_SOUND4CNT_L)^ := NOISE_ENV;
+  { Accent ladder (tools/song.py: x=soft/normal via 'x'/'X', '!' hard):
+    1 soft, 2 normal, 3+ accent. Volume rides bits 12-15 of SOUND4CNT_L. }
+  case note of
+    1: env := $8100;   { vol 8, short }
+    2: env := NOISE_ENV; { vol 10 }
+  else
+    env := $D100;      { vol 13 accent kick }
+  end;
+  PWord(REG_SOUND4CNT_L)^ := env;
   PWord(REG_SOUND4CNT_H)^ := NOISE_POLY;
 end;
 
