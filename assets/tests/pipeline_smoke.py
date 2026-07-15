@@ -556,8 +556,8 @@ def sc_bg_bake(td: Path) -> str:
     _require(re.search(r"BGT_MAP_W\s*=\s*8", text), "missing MAP_W")
     _require(re.search(r"BGT_MAP_H\s*=\s*4", text), "missing MAP_H")
     _require(re.search(rf"BGT_TILE_COUNT\s*=\s*{uniq}", text), "TILE_COUNT mismatch")
-    # round-trip preview must equal the quantized source exactly
-    q = im.quantize(colors=15, method=Image.MEDIANCUT).convert("RGB")
+    # round-trip preview must equal the (dither-free) quantized source exactly
+    q = im.quantize(colors=15, method=Image.MEDIANCUT, dither=Image.NONE).convert("RGB")
     pv = Image.open(rec["preview"]).convert("RGB")
     diff = sum(1 for a, b in zip(q.getdata(), pv.getdata()) if a != b)
     _require(diff == 0, f"round-trip mismatch: {diff} px")
@@ -600,8 +600,8 @@ def sc_bg_bake_multipal(td: Path) -> str:
     _require(rec.get("tiles_degraded") == 0, f"degraded tiles: {rec.get('tiles_degraded')}")
     _require(rec.get("colors_used") == 24, f"colors_used {rec.get('colors_used')}")
     _require(rec.get("tiles_unique") <= 15, f"cross-bank dedup failed: {rec.get('tiles_unique')}")
-    # round-trip must match the color-universe quantize exactly (banks fixed the loss)
-    q = im.quantize(colors=60, method=Image.MEDIANCUT).convert("RGB")
+    # round-trip must match the (dither-free) color-universe quantize exactly
+    q = im.quantize(colors=60, method=Image.MEDIANCUT, dither=Image.NONE).convert("RGB")
     pv = Image.open(rec["preview"]).convert("RGB")
     diff = sum(1 for a, b in zip(q.getdata(), pv.getdata()) if a != b)
     _require(diff == 0, f"multipal round-trip mismatch: {diff} px")
@@ -626,6 +626,37 @@ def sc_bg_bake_multipal(td: Path) -> str:
     _require(rec1.get("colors_used") <= 15, f"single-path colors {rec1.get('colors_used')}")
     _require(diff1 > 0, "single palette was lossless on a 24-color image?")
     return f"{banks} banks, 24 colors exact, {rec['tiles_unique']} tiles shared cross-bank"
+
+
+def sc_bg_bake_maxtiles(td: Path) -> str:
+    from PIL import Image
+    # Deterministic per-tile "noise": every 8x8 cell gets a unique two-color
+    # pattern, so exact dedup finds nothing. --max-tiles must vector-quantize
+    # down to the budget and keep the map/tile invariants intact.
+    src = td / "vq.png"
+    im = Image.new("RGB", (64, 32))
+    px = im.load()
+    for ty in range(4):
+        for tx in range(8):
+            k = ty * 8 + tx
+            base = (60 + k * 5, 90, 200 - k * 4)
+            alt = (base[0] + 12, base[1] + 9, base[2] - 10)
+            for y in range(8):
+                for x in range(8):
+                    px[tx * 8 + x, ty * 8 + y] = alt if ((x * 7 + y * 3 + k) % 5) == 0 else base
+    im.save(src)
+    out = td / "vq.inc"
+    code, rec, _, err = run_cli(td, [
+        "bg-bake", str(src), "--out", str(out), "--name", "VQT",
+        "--max-tiles", "12", "--no-preview",
+    ])
+    _require(code == 0, f"bg-bake max-tiles: {err}")
+    _require(rec.get("tiles_unique") <= 12, f"budget missed: {rec.get('tiles_unique')}")
+    _require(rec.get("tiles_merged", 0) > 0, "nothing merged on an all-unique fixture")
+    text = out.read_text()
+    _require(re.search(rf"VQT_TILE_COUNT\s*=\s*{rec['tiles_unique']}", text),
+             "TILE_COUNT mismatch")
+    return f"{rec['tiles_unique']} tiles under budget 12, {rec['tiles_merged']} cells merged"
 
 
 def sc_font_bake(td: Path) -> str:
@@ -1354,6 +1385,7 @@ SCENARIOS: list[tuple[str, Callable[..., str]]] = [
     ("ui_bake.nine_slice", sc_ui_bake),
     ("bg_bake.tilemap", sc_bg_bake),
     ("bg_bake.multipal", sc_bg_bake_multipal),
+    ("bg_bake.max_tiles", sc_bg_bake_maxtiles),
     ("font_bake.glyphs", sc_font_bake),
     ("tile.offset_seam", sc_tile_offset),
     ("tile.mirror_exact", sc_tile_mirror),

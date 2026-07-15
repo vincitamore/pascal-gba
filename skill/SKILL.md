@@ -254,4 +254,6 @@ preview PNG proves the bake reconstructs the quantized source exactly).
 palette banks via the map-entry palette bits -- the fix for multi-region
 images (night sky + gold banner) that bleed through one shared 15-color
 palette. Tile data is bank-agnostic, so identical index patterns share
-storage across banks.
+storage across banks. `bg-bake --max-tiles N` vector-quantizes the tile
+set to a budget for organic sources whose noise defeats dedup (the
+1024-tile guard); judge the budget against the round-trip preview.

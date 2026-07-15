@@ -369,11 +369,22 @@ each bank independently -- up to N x 15 opaque colors per image.
 
 Mechanics worth knowing:
 
-- Bank assignment is greedy set-cover (largest tile color-sets first,
-  each absorbed by the bank that adds fewest new colors). When every
-  bank is full, the closest bank absorbs the overflow and re-quantizes;
-  the JSON record's `tiles_degraded` counts affected tiles -- zero means
-  the bake is pixel-exact against its color-universe quantize.
+- Bank assignment tries exact greedy set-cover first (largest tile
+  color-sets, each absorbed by the bank that adds fewest new colors).
+  Clean tile-structured sources pack exactly: `tiles_degraded: 0` in
+  the JSON record means pixel-exact by construction.
+- Organic sources (AI art, downsampled paintings) have too many
+  distinct color-sets to pack exactly. The bake then re-banks by
+  color-coherent clustering: tiles group by mean color (a sky bank, a
+  grass bank), each group's pooled pixels quantize to one 15-color
+  bank, and every quantize is dither-free. Loss lands inside a
+  region's own hues; `tiles_degraded` counts inexact tiles and the
+  round-trip preview is the judge.
+- `--max-tiles N` (1..1024) vector-quantizes the tile set to a budget
+  before palette work -- for sources whose texture noise makes nearly
+  every 8x8 cell unique. Codebook selection is maximin, so one-off
+  detail survives while noise clusters collapse; `tiles_merged` counts
+  remapped cells.
 - Tile data holds palette indices, the map entry holds the bank, so
   identical index patterns share one tile across different banks (a
   flat fill or a repeating dither pays for itself once).
@@ -385,7 +396,7 @@ Mechanics worth knowing:
 
 Use one shared palette for single-region images (a sky, a field); reach
 for banks when the round-trip preview shows regions stealing each
-other's colors.
+other's colors, and add a tile budget when the 1024-tile guard trips.
 
 ### Retry doctrine for transient API errors
 

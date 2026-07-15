@@ -335,6 +335,7 @@ def cmd_bg_bake(args) -> dict:
     return bgbake.bake_bg(args.infile, args.out, args.name,
                           colors=args.colors,
                           palettes=args.palettes,
+                          max_tiles=args.max_tiles,
                           dedup_flips=not args.no_flip_dedup,
                           preview=not args.no_preview)
 
@@ -797,6 +798,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="palette banks 1..16 (default 1). >1 clusters tiles into "
                          "independent banks via the map-entry palette bits -- the fix "
                          "for multi-region images that bleed through one shared palette")
+    bb.add_argument("--max-tiles", type=int, default=None,
+                    help="vector-quantize the tile set to this budget (1..1024) before "
+                         "palette work -- for organic sources whose noise makes every "
+                         "8x8 cell unique; judge the budget against the preview")
     bb.add_argument("--no-flip-dedup", action="store_true",
                     help="dedup exact tiles only; skip h/v-mirror matching")
     bb.add_argument("--no-preview", action="store_true",
