@@ -1,0 +1,15 @@
+# kit_demo exercise: menu -> play, walk the player with a held d-pad,
+# stamp two random blocks (A) with verified saves, back to menu.
+# Emulator frames (bundled BIOS ~60-frame bootstrap).
+90   screenshot bin/kitdemo_menu.png
+100  tap        A
+130  screenshot bin/kitdemo_play.png
+140  press      RIGHT
+190  release    RIGHT
+170  press      DOWN
+210  release    DOWN
+215  tap        A
+230  tap        A
+250  screenshot bin/kitdemo_stamped.png
+260  tap        B
+280  screenshot bin/kitdemo_menu_back.png

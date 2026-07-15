@@ -116,8 +116,22 @@ procedure DbgLogLevel(level: Byte; const fmt: ansistring;
   message (ready byte cleared back to 0). Use between DbgLog
   calls when sending a burst that exceeds 1 message per emulated
   frame — without this, later messages overwrite earlier ones
-  before the poll observes them. }
+  before the poll observes them.
+
+  CAUTION: unbounded, and only this emulator's poll ever clears the
+  ready byte. On real hardware or any third-party emulator the byte
+  stays set forever and this call hangs the cart. Emulator-only test
+  carts may use it; anything that also runs on a device must use the
+  bounded variant below. }
 procedure DbgLogWaitConsumed;
+
+{ Device-safe variant: wait for consumption, but give up after
+  maxFrames vblank edges. Under this emulator narration stays
+  complete (the poll fires every frame, so the wait normally returns
+  after one edge); on real hardware or other emulators the cart just
+  spends maxFrames and moves on instead of hanging. Polls VCOUNT
+  directly — no dependency on the cart's own vblank helper. }
+procedure DbgLogWaitConsumedBounded(maxFrames: Integer);
 
 implementation
 
@@ -186,6 +200,23 @@ end;
 procedure DbgLogWaitConsumed;
 begin
   while PByte(DBG_SENTINEL_ADDR)^ <> 0 do ;
+end;
+
+procedure DbgLogWaitConsumedBounded(maxFrames: Integer);
+const
+  REG_VCOUNT = $04000006;
+var
+  n: Integer;
+begin
+  n := 0;
+  while (PByte(DBG_SENTINEL_ADDR)^ <> 0) and (n < maxFrames) do
+  begin
+    { One full vblank edge: leave any current vblank, then wait for
+      the next one to start. }
+    while PWord(REG_VCOUNT)^ >= 160 do ;
+    while PWord(REG_VCOUNT)^ <  160 do ;
+    Inc(n);
+  end;
 end;
 
 end.

@@ -25,7 +25,7 @@ program device_smoke;
   DbgLog narration is emitted for the emulator's replay rig, but this
   cart deliberately never calls DbgLogWaitConsumed: nothing clears the
   ready byte on real hardware or third-party emulators, so an unbounded
-  wait would hang the device. DbgFlushBounded below waits for
+  wait would hang the device. DbgLogWaitConsumedBounded(4) waits for
   consumption but gives up after four frames, so the same ROM narrates
   fully under the emulator and runs unmodified on a device.
 
@@ -229,22 +229,6 @@ begin
     DrawChar(x + (n - 1 - k) * 4 * scale, y, Chr(Ord('0') + digits[k]), scale, c);
 end;
 
-{ Device-safe narration spacing: wait for the emulator's per-frame
-  poll to consume the last message, but give up after four frames so
-  real hardware (where nothing ever clears the ready byte) never hangs.
-  An unbounded DbgLogWaitConsumed would brick the cart off-emulator. }
-procedure DbgFlushBounded;
-var
-  t: Integer;
-begin
-  t := 0;
-  while (PByte(DBG_SENTINEL_ADDR)^ <> 0) and (t < 4) do
-  begin
-    WaitVBlank;
-    Inc(t);
-  end;
-end;
-
 { ── Audio (PSG channel 1) ── }
 
 procedure InitSound;
@@ -356,7 +340,7 @@ begin
   PWord(REG_DISPCNT)^ := $0403;
 
   DbgLogStr('device_smoke: boot');
-  DbgFlushBounded;
+  DbgLogWaitConsumedBounded(4);
 
   SramBootSequence;
   case saveState of
@@ -364,7 +348,7 @@ begin
     1: DbgLogStr('device_smoke: sram marker found, count bumped');
     2: DbgLogStr('device_smoke: sram verify FAIL');
   end;
-  DbgFlushBounded;
+  DbgLogWaitConsumedBounded(4);
 
   InitSound;
   DrawStaticUi;
@@ -372,7 +356,7 @@ begin
     DrawButton(i, False);
 
   DbgLogStr('device_smoke: main loop');
-  DbgFlushBounded;
+  DbgLogWaitConsumedBounded(4);
 
   frame := 0;
   prevKeys := 0;

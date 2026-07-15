@@ -11,7 +11,7 @@
 #   replay: 31   dbglog: 23
 # Total: 335 cases + 4163 save-assertions.
 
-foreach ($t in @('test_phase_b','test_phase_d','test_phase_e','test_phase_f','test_armcore','test_ppu','test_bios_hle','test_save','test_replay','test_dbglog')) {
+foreach ($t in @('test_phase_b','test_phase_d','test_phase_e','test_phase_f','test_armcore','test_ppu','test_bios_hle','test_save','test_replay','test_dbglog','test_kit')) {
   Write-Host "--- $t ---"
   $out = & "bin\$t.exe" 2>&1
   $out | Select-String -Pattern 'passed|FAIL|===|all\s+tests' | Select-Object -Last 5

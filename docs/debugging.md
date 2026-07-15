@@ -97,11 +97,11 @@ no wait is needed, since there's nothing else in flight to overwrite.
 One hard caveat: the wait is unbounded, and only this emulator's poll ever
 clears the ready byte. On real hardware or under any other emulator the
 byte stays set forever and `DbgLogWaitConsumed` spins the cart into a
-permanent hang. A cart that must also run off-emulator should use a
-bounded wait instead: spin on the ready byte with a frame cap, giving up
-after a few vblanks. `test/device_smoke.pp`'s `DbgFlushBounded` is the
-reference shape — full narration under the emulator, a few wasted frames
-anywhere else.
+permanent hang. A cart that must also run off-emulator calls
+`DbgLogWaitConsumedBounded(maxFrames)` instead — same unit, same
+consumption wait, but it gives up after maxFrames vblank edges: full
+narration under the emulator, a few wasted frames anywhere else.
+`test/device_smoke.pp` uses it throughout.
 
 ## Footgun 2: register clobber across the call
 

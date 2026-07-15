@@ -57,8 +57,10 @@ $srcFull = (Resolve-Path $srcPath).Path
 $srcDir  = Split-Path $srcFull -Parent
 $srcBase = [System.IO.Path]::GetFileNameWithoutExtension($srcFull)
 
-# Add src/ to the unit search so user code can `uses Gba_Dbg, ...`
+# Add src/ + src/kit to the unit search so user code can
+# `uses Gba_Dbg, Kit_Scene, ...`
 $projectSrc = Join-Path $PSScriptRoot 'src'
+$projectKit = Join-Path $PSScriptRoot 'src\kit'
 
 # Delete prior .gba so we never confuse "old success" with "new success"
 Remove-Item -ErrorAction SilentlyContinue (Join-Path $srcDir "$srcBase.gba")
@@ -76,11 +78,13 @@ try {
     $compilerArgs += "@$dkpCfg"
     $compilerArgs += "-Fu$rtlDir"
     $compilerArgs += "-Fu$projectSrc"
+    $compilerArgs += "-Fu$projectKit"
     $compilerArgs += '-XParm-none-eabi-'
   }
   else {
     $compilerArgs += "-Fu$rtlDir"
     $compilerArgs += "-Fu$projectSrc"
+    $compilerArgs += "-Fu$projectKit"
     $compilerArgs += "-FD$binutilsDir"
     $compilerArgs += '-XParm-none-eabi-'
   }

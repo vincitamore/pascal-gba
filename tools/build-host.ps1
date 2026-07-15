@@ -40,13 +40,14 @@ $targets = @(
   'test\test_phase_b.pas',
   'test\test_phase_d.pas',
   'test\test_phase_e.pas',
-  'test\test_phase_f.pas'
+  'test\test_phase_f.pas',
+  'test\test_kit.pas'
 )
 
 $failed = @()
 foreach ($t in $targets) {
   Write-Host "--- $t ---"
-  & $Fpc -Mobjfpc -Sh -O3 -Fusrc -FEbin -FUbin $t
+  & $Fpc -Mobjfpc -Sh -O3 -Fusrc -Fusrc\kit -FEbin -FUbin $t
   if ($LASTEXITCODE -ne 0) { $failed += $t }
 }
 

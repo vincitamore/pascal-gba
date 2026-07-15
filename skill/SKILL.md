@@ -153,11 +153,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\headless_smoke.ps1
 #    shows SAVE NEW on first boot, SAVE OK after. Copy the .gba to a
 #    device or another emulator to smoke-test it the same way.
 #    test\scripts\device-smoke.replay exercises the input echo + blips.
+
+# 6. Framework-kit demo (scene machine, input edges, seeded RNG,
+#    fixed-point movement, verified SRAM saves):
+.\build-gba.ps1 test\kit_demo
+.\bin\gbarun.exe --rom test\kit_demo.gba --headless --frames 300 --replay test\scripts\kit-demo.replay
+#    deterministic play field: screenshots are byte-stable across runs.
 ```
 
 ## Cart-side coding discipline
 
-Cart code is `{$mode objfpc}{$H+}` Pascal compiled with `-Tgba`. The rules
+Cart code is `{$mode objfpc}{$H+}` Pascal compiled with `-Tgba`. Real carts
+build on the framework kit (`src\kit\`: scene machine, input edge-detect,
+seeded RNG, fixed-point, SRAM save — `docs\kit.md` has the unit reference,
+frame shape, add-a-game recipe, and determinism rules). The RTL rules
 that bite are documented with full rationale in `docs\`:
 
 - **Debug logging** (`docs\debugging.md`): `uses Gba_Dbg`, `DbgLogStr` with
@@ -165,9 +174,9 @@ that bite are documented with full rationale in `docs\`:
   code path; promote locals that must survive a log call to unit-level vars
   (caller-saved-register clobber). CAUTION for carts that also run on real
   hardware or third-party emulators: nothing clears the ready byte there, so
-  an unbounded `DbgLogWaitConsumed` hangs the cart — use a bounded wait
-  (spin on the ready byte with a frame cap; see `test\device_smoke.pp`'s
-  `DbgFlushBounded`).
+  an unbounded `DbgLogWaitConsumed` hangs the cart — call
+  `DbgLogWaitConsumedBounded(4)` instead (same unit; waits for consumption
+  but gives up after N vblank edges).
 - **No `Format()`/`IntToStr`/`Str()` in cart code** (`docs\rtl-limitations.md`):
   the `-Tgba` RTL's numeric formatting is broken; build strings by explicit
   char assignment or pre-built variants.
