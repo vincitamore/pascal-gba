@@ -166,9 +166,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\headless_smoke.ps1
 .\bin\gbarun.exe --rom test\audio_demo_cart.gba --headless --frames 600 --dump-audio bin\tune.wav
 #    tune data: tools\song.py test\songs\demo.song (docs\kit.md has the format)
 
-# 8. Replay regression: pinned-hash verification of deterministic replay runs:
-python tools\regress.py test\regress\kit_demo.case
+# 8. Mode-0 kit demo (multi-palette scrolling BG + OAM sprite + text HUD):
+.\build-gba.ps1 test\mode0_demo
+.\bin\gbarun.exe --rom test\mode0_demo.gba --headless --frames 400 --replay test\scripts\mode0-demo.replay
+#    d-pad scrolls a 512-wide 13-bank field; the HUD readout tracks HOFS;
+#    A flips the pulsing sprite. Deterministic: screenshots byte-stable.
+
+# 9. Replay regression: pinned-hash verification of deterministic replay runs:
+python tools\regress.py test\regress\kit_demo.case test\regress\mode0_demo.case
 #    --update re-pins after an intended change; review the diff first.
+
+# 10. Cross-validate a ROM against mGBA (independent reference core):
+powershell -File tools\mgba-shot.ps1 -Rom test\mode0_demo.gba -Out bin\mgba.png
+#    boots the ROM in mGBA's SDL build and captures its window to a PNG
+#    (mGBA 0.10 has no headless screenshot surface). Locates mgba-sdl.exe
+#    via -MgbaSdl, the MGBA_SDL env var, or PATH.
 ```
 
 ## Cart-side coding discipline
@@ -176,8 +188,9 @@ python tools\regress.py test\regress\kit_demo.case
 Cart code is `{$mode objfpc}{$H+}` Pascal compiled with `-Tgba`. Real carts
 build on the framework kit (`src\kit\`: scene machine, input edge-detect,
 seeded RNG, fixed-point, SRAM save, PSG audio driver + `tools\song.py`
-score authoring — `docs\kit.md` has the unit reference, frame shape,
-add-a-game recipe, determinism rules, and the score format). The RTL rules
+score authoring, text-BG loader + scroll, OAM sprite manager, tile-grid
+text — `docs\kit.md` has the unit reference, frame shape, add-a-game
+recipe, determinism rules, and the score format). The RTL rules
 that bite are documented with full rationale in `docs\`:
 
 - **Debug logging** (`docs\debugging.md`): `uses Gba_Dbg`, `DbgLogStr` with
@@ -237,3 +250,8 @@ Bakers: `bake`/`anim` (OBJ sprites), `tile` (seamless terrain), `ui-bake`
 (full image -> deduplicated BG tile set + tilemap + palette for text-BG
 modes; mirror tiles dedup through the map-entry flip bits, and a round-trip
 preview PNG proves the bake reconstructs the quantized source exactly).
+`bg-bake --palettes N` (2..16) clusters tiles into independent 16-color
+palette banks via the map-entry palette bits -- the fix for multi-region
+images (night sky + gold banner) that bleed through one shared 15-color
+palette. Tile data is bank-agnostic, so identical index patterns share
+storage across banks.

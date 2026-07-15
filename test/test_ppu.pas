@@ -385,6 +385,71 @@ begin
   end;
 end;
 
+procedure TestWideMap64x32;
+{ Text-BG screen size 1 (512x256 = 64x32 tiles): columns 0..31 come from
+  the base screenblock, columns 32..63 from base+1. Layout mirrors a real
+  wide-map cart: tiles in charblock 0, maps in screenblocks 8 and 9.
+
+  Tile 1 = solid index 1. Map: SB8 entry (0,0) = tile 1 bank 0 (red);
+  SB9 entry (0,0) = tile 1 bank 2 (green); SB9 entry (31,0) = tile 1
+  bank 3 (yellow) = map column 63. Everything else transparent tile 0.
+
+  HOFS=0   -> screen x0 shows map col 0  (red from SB8)
+  HOFS=256 -> screen x0 shows map col 32 (green from SB9)
+  HOFS=504 -> screen x0 shows map col 63 (yellow), x8 wraps to col 0 (red) }
+var
+  mem: TGbaMemory;
+  ppu: TGbaPpu;
+  expRed, expGreen, expYellow, expBd: TWord;
+  fb: PFrameBuffer;
+begin
+  Writeln('--- TestWideMap64x32 ---');
+  mem := TGbaMemory.Create;
+  ppu := TGbaPpu.Create(mem);
+  try
+    WriteBgPalette(mem, 0,  MakeBgr555(0, 0, 31));     { backdrop blue }
+    WriteBgPalette(mem, 1,  MakeBgr555(31, 0, 0));     { bank 0 red }
+    WriteBgPalette(mem, 33, MakeBgr555(0, 31, 0));     { bank 2 green }
+    WriteBgPalette(mem, 49, MakeBgr555(31, 31, 0));    { bank 3 yellow }
+    expRed    := ExpandColor(MakeBgr555(31, 0, 0));
+    expGreen  := ExpandColor(MakeBgr555(0, 31, 0));
+    expYellow := ExpandColor(MakeBgr555(31, 31, 0));
+    expBd     := ExpandColor(MakeBgr555(0, 0, 31));
+
+    { Charblock 0: tile 0 transparent, tile 1 solid index 1. }
+    FillTile4bppConstant(mem, 0 * 32, 0);
+    FillTile4bppConstant(mem, 1 * 32, 1);
+
+    { SB8 ($4000): entry (0,0) = tile 1, bank 0. }
+    WriteVramHalf(mem, $4000, $0001);
+    { SB9 ($4800): entry (0,0) = tile 1, bank 2 -> map column 32. }
+    WriteVramHalf(mem, $4800, $2001);
+    { SB9 entry (31,0) = tile 1, bank 3 -> map column 63. }
+    WriteVramHalf(mem, $4800 + 31 * 2, $3001);
+
+    { BG0CNT: prio 0, charblock 0, 4bpp, screenbase 8, size 1 (64x32). }
+    SetIoHalf(mem, REG_BG0CNT, THalf((8 shl 8) or (1 shl 14)));
+    SetIoHalf(mem, REG_DISPCNT, $0100);
+
+    SetIoHalf(mem, REG_BG0HOFS, 0);
+    ppu.RenderScanline(0);
+    fb := ppu.FrameBufferPtr;
+    CheckEq('HOFS=0: x0 = map col 0 from SB8 (red)',   expRed, fb^[0]);
+    CheckEq('HOFS=0: x8 = transparent -> backdrop',    expBd,  fb^[8]);
+
+    SetIoHalf(mem, REG_BG0HOFS, 256);
+    ppu.RenderScanline(0);
+    CheckEq('HOFS=256: x0 = map col 32 from SB9 (green)', expGreen, fb^[0]);
+
+    SetIoHalf(mem, REG_BG0HOFS, 504);
+    ppu.RenderScanline(0);
+    CheckEq('HOFS=504: x0 = map col 63 from SB9 (yellow)', expYellow, fb^[0]);
+    CheckEq('HOFS=504: x8 wraps to map col 0 (red)',       expRed,    fb^[8]);
+  finally
+    ppu.Free; mem.Free;
+  end;
+end;
+
 procedure TestPriorityCompositing;
 { Two BGs with different priorities. BG0 has priority 1, BG1 has priority 0
   (higher). Where both layers are opaque, BG1 must show through. Where BG1
@@ -515,6 +580,7 @@ begin
   TestPaletteBankSelection;          Writeln('');
   TestHorizontalScroll;              Writeln('');
   TestHorizontalFlip;                Writeln('');
+  TestWideMap64x32;                  Writeln('');
   TestPriorityCompositing;           Writeln('');
   TestPpmDump;                       Writeln('');
   Writeln('==========================================');

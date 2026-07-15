@@ -1,0 +1,11 @@
+# mode0_demo exercise: scroll the 64-wide field, flip the sprite, scroll back.
+# Frame numbers assume the bundled BIOS (~60-frame bootstrap; cart ready ~f62).
+70   screenshot bin/mode0_boot.png
+80   press      RIGHT
+200  release    RIGHT
+210  screenshot bin/mode0_scrolled.png
+220  tap        A
+240  screenshot bin/mode0_flipped.png
+260  press      LEFT
+340  release    LEFT
+350  screenshot bin/mode0_back.png

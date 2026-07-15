@@ -1,0 +1,10 @@
+# Kit_Bg/Kit_Obj/Kit_Text demo: deterministic scroll + sprite + text HUD.
+# Motion is frame-counter driven (no RNG, no save), so these screenshots
+# are byte-stable across runs.
+rom     test/mode0_demo.gba
+replay  test/scripts/mode0-demo.replay
+frames  400
+expect  bin/mode0_boot.png  d45ce560b8c0c46f26361d22333aa7294b2787d3ef0c1c093962092bad983fe3
+expect  bin/mode0_scrolled.png  6d4caeb9138034522d74e546275aa2ead4d0e98f40acbbc45874ea25a578705c
+expect  bin/mode0_flipped.png  412110e92bbd0567e0cb285264e37f1c4f6d67a7558136bcd2be590baa82746d
+expect  bin/mode0_back.png  866691f8d6d567681abdc1eb36ad0d9643b801664a64781fd996e3e4aac005bf
