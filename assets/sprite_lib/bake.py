@@ -369,6 +369,130 @@ def bake_font_sheet(infile: str | Path,
     return rec
 
 
+def bake_bg(infile: str | Path,
+            out: str | Path,
+            name: str,
+            *,
+            colors: int = 15,
+            dedup_flips: bool = True,
+            preview: bool = True) -> dict:
+    """Full-image BG bake: image -> deduplicated 8x8 tile set + tilemap +
+    palette, as one .inc.
+
+    The image is quantized to <= `colors` opaque colors mapped to palette
+    slots 1..15 (slot 0 stays $0000 — in 4bpp text BG modes pixel index 0
+    always shows the backdrop, so opaque art must not use it). Tiles are
+    deduplicated exactly, and — with `dedup_flips` — against their
+    horizontal/vertical/both mirrors, encoded into the map entry flip bits
+    the hardware applies for free.
+
+    Map entries are emitted row-major at MAP_W x MAP_H (image tiles, not
+    the 32x32 screenblock): the cart-side loader lays rows into the
+    screenblock stride. Tile indices must fit the 10-bit map field; a
+    busy image that dedups to more than 1024 tiles is an error (crop,
+    simplify, or split it).
+    """
+    infile = Path(infile)
+    im = Image.open(infile).convert("RGB")
+    W, H = im.size
+    if W % 8 or H % 8:
+        raise ValueError(f"bg-bake: image must be a multiple of 8 in both axes, got {W}x{H}")
+    if not 1 <= colors <= 15:
+        raise ValueError("bg-bake: --colors must be 1..15 (slot 0 is the backdrop)")
+
+    q = im.quantize(colors=colors, method=Image.MEDIANCUT).convert("RGB")
+    palette: list[tuple[int, int, int]] = []
+    idx: dict[tuple[int, int, int], int] = {}
+    for c in q.getdata():
+        if c not in idx and len(palette) < colors:
+            palette.append(c)
+            idx[c] = len(palette)          # 1-based: slot 0 = backdrop
+    px = q.load()
+
+    def flip_tile(t: list[int], hf: bool, vf: bool) -> list[int]:
+        out_t = []
+        for y in range(8):
+            sy = 7 - y if vf else y
+            for x in range(8):
+                sx = 7 - x if hf else x
+                out_t.append(t[sy * 8 + sx])
+        return out_t
+
+    tiles_w, tiles_h = W // 8, H // 8
+    tiles: list[list[int]] = []
+    seen: dict[tuple[int, ...], tuple[int, int, int]] = {}
+    map_words: list[int] = []
+
+    for ty in range(tiles_h):
+        for tx in range(tiles_w):
+            t = [idx[px[tx * 8 + x, ty * 8 + y]] for y in range(8) for x in range(8)]
+            hit = seen.get(tuple(t))
+            if hit is None:
+                ti = len(tiles)
+                tiles.append(t)
+                # Register the stored tile under every orientation the map
+                # entry can reconstruct. Identity goes first so an exact
+                # repeat prefers flip-free entries.
+                orientations = [(False, False)]
+                if dedup_flips:
+                    orientations += [(True, False), (False, True), (True, True)]
+                for hf, vf in orientations:
+                    seen.setdefault(tuple(flip_tile(t, hf, vf)), (ti, int(hf), int(vf)))
+                hit = (ti, 0, 0)
+            ti, hf, vf = hit
+            map_words.append(ti | (hf << 10) | (vf << 11))
+
+    if len(tiles) > 1024:
+        raise ValueError(f"bg-bake: {len(tiles)} unique tiles exceed the 10-bit "
+                         f"map field (1024); simplify or split the image")
+
+    tile_bytes: list[int] = []
+    for t in tiles:
+        tile_bytes.extend(util.pack_4bpp_linear(t))
+
+    out = Path(out)
+    util.emit_inc(out, name, W, H, palette, tile_bytes,
+                  frames=1, obj_order=False, include_transparent=True,
+                  source_note=f"bg-bake of {infile.name}: {len(tiles)} tiles, "
+                              f"{len(palette)} colors + backdrop slot",
+                  extra_const={"MAP_W": tiles_w, "MAP_H": tiles_h,
+                               "TILE_COUNT": len(tiles)},
+                  map_words=map_words)
+
+    rec: dict = {
+        "op": "bg-bake",
+        "infile": str(infile),
+        "out": str(out),
+        "name": name,
+        "size": [W, H],
+        "map": [tiles_w, tiles_h],
+        "tiles_unique": len(tiles),
+        "tiles_total": tiles_w * tiles_h,
+        "dedup_flips": dedup_flips,
+        "colors_used": len(palette),
+        "preview": None,
+    }
+    if preview:
+        # Round-trip render from the emitted data model (tiles + map),
+        # proving the bake reconstructs the image the cart will show.
+        pv = Image.new("RGB", (W, H))
+        pp = pv.load()
+        for my in range(tiles_h):
+            for mx in range(tiles_w):
+                entry = map_words[my * tiles_w + mx]
+                t = tiles[entry & 0x3FF]
+                hf, vf = bool(entry & 0x400), bool(entry & 0x800)
+                shown = flip_tile(t, hf, vf)
+                for y in range(8):
+                    for x in range(8):
+                        s = shown[y * 8 + x]
+                        pp[mx * 8 + x, my * 8 + y] = (0, 0, 0) if s == 0 else palette[s - 1]
+        pv_path = out.with_suffix(".preview.png")
+        pv.save(pv_path)
+        rec["preview"] = str(pv_path)
+    return rec
+
+
 def _quantize_and_pack(smalls: list[Image.Image], W: int, H: int, name: str,
                        out: Path,
                        *,

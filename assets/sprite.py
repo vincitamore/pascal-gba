@@ -331,6 +331,13 @@ def cmd_ui_bake(args) -> dict:
                                 gif_ms=args.gif_ms)
 
 
+def cmd_bg_bake(args) -> dict:
+    return bake.bake_bg(args.infile, args.out, args.name,
+                        colors=args.colors,
+                        dedup_flips=not args.no_flip_dedup,
+                        preview=not args.no_preview)
+
+
 def cmd_font_bake(args) -> dict:
     cols, rows = _parse_size(args.grid)
     sc = int(args.start_codepoint, 0) if isinstance(args.start_codepoint, str) else args.start_codepoint
@@ -773,6 +780,23 @@ def build_parser() -> argparse.ArgumentParser:
     ub.add_argument("--gif-ms", type=int, default=0,
                     help="preview gif duration ms (0 = no animated preview; nine-slice is static)")
     ub.set_defaults(fn=cmd_ui_bake)
+
+    # bg-bake (full-image tilemap)
+    bb = sub.add_parser("bg-bake",
+                        help="bake a full image into a deduplicated BG tile set + tilemap + "
+                             "palette .inc (text-BG modes; flip-aware dedup)")
+    bb.add_argument("infile",
+                    help="opaque source image; both dimensions multiples of 8 "
+                         "(240x160 = one full screen)")
+    bb.add_argument("--out", required=True)
+    bb.add_argument("--name", required=True)
+    bb.add_argument("--colors", type=int, default=15,
+                    help="palette size 1..15 (default 15; slot 0 stays the backdrop)")
+    bb.add_argument("--no-flip-dedup", action="store_true",
+                    help="dedup exact tiles only; skip h/v-mirror matching")
+    bb.add_argument("--no-preview", action="store_true",
+                    help="skip the round-trip preview PNG")
+    bb.set_defaults(fn=cmd_bg_bake)
 
     # font-bake (existing pixel-font sheet ingestion)
     fb = sub.add_parser("font-bake",

@@ -227,3 +227,9 @@ OAuth file); the other stages run offline. Path roots are flag-or-env driven:
 `--cache-dir`/`SPRITE_CACHE_DIR`, `--manifest-dir`/`SPRITE_MANIFEST_DIR`,
 `--ledger`/`SPRITE_LEDGER` (defaults are cwd-relative). Full documentation:
 `assets\PIPELINE.md`.
+
+Bakers: `bake`/`anim` (OBJ sprites), `tile` (seamless terrain), `ui-bake`
+(nine-slice chrome), `font-bake` (pixel-font glyph banks), and `bg-bake`
+(full image -> deduplicated BG tile set + tilemap + palette for text-BG
+modes; mirror tiles dedup through the map-entry flip bits, and a round-trip
+preview PNG proves the bake reconstructs the quantized source exactly).

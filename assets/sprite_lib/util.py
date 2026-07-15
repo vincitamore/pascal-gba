@@ -315,7 +315,8 @@ def emit_inc(out_path: Path | str, name: str, W: int, H: int,
              obj_order: bool = False,
              include_transparent: bool = True,
              source_note: str = "",
-             extra_const: dict[str, int] | None = None) -> Path:
+             extra_const: dict[str, int] | None = None,
+             map_words: list[int] | None = None) -> Path:
     """Write a Pascal {$I}-includable .inc with the canonical schema.
 
     Schema (consumed by sprite_smoke.pas, test ROMs, and game-side `uses`):
@@ -327,10 +328,14 @@ def emit_inc(out_path: Path | str, name: str, W: int, H: int,
             [extra_const items];
         <NAME>_PAL: array[0..N] of Word = (...BGR555 halfwords...);
         <NAME>_TILES: array[0..M-1] of Byte = (... 4bpp packed ...);
+        [<NAME>_MAP: array[0..K-1] of Word = (...);]   (bg-bake tilemaps only)
 
     `include_transparent` controls whether palette slot 0 = $0000 is prepended.
     True for OBJ sprites (slot 0 must be transparent); False for terrain BG tiles
     where every slot is opaque.
+
+    `map_words` (bg-bake) are GBA text-BG screen entries: tile index in bits
+    0-9, hflip bit 10, vflip bit 11, palette bank bits 12-15.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -356,6 +361,12 @@ def emit_inc(out_path: Path | str, name: str, W: int, H: int,
     rows = [", ".join(f"${b:02X}" for b in tile_bytes[i:i + 16])
             for i in range(0, len(tile_bytes), 16)]
     L.append("    " + ",\n    ".join(rows) + ");")
+    # tilemap (bg-bake)
+    if map_words is not None:
+        L.append(f"  {name}_MAP: array[0..{len(map_words) - 1}] of Word = (")
+        mrows = [", ".join(f"${w:04X}" for w in map_words[i:i + 12])
+                 for i in range(0, len(map_words), 12)]
+        L.append("    " + ",\n    ".join(mrows) + ");")
     atomic_write(out_path, "\n".join(L) + "\n")
     return out_path
 

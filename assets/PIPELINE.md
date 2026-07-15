@@ -34,7 +34,7 @@ The pipeline turns a design brief into GBA 4bpp `.inc` data the FPC
 consumer can `{$I}`:
 
 ```
-prompt -> gen | edit | video -> (extract/pick) -> bake | anim | tile | ui-bake | font-bake
+prompt -> gen | edit | video -> (extract/pick) -> bake | anim | tile | ui-bake | font-bake | bg-bake
        -> preview | emulate -> manifest / canonical registry
 ```
 
@@ -174,6 +174,7 @@ symptom of a broken workflow.
 | **UI nine-slice** | Panel chrome of 9 cells (corners + edges + center) for arbitrary-sized panels. | `sprite gen --template ui-nine-slice` -> `sprite ui-bake` | `.inc` (9 tiles + slicing metadata) | `sprites/ui/` |
 | **Portrait** | Head-and-shoulders for cutscene/dialog frames; ships via BG layer. | `sprite gen --template portrait` -> `sprite bake --linear` | `.inc` | `sprites/portraits/` |
 | **Font glyph bank** | Codepoint-indexed glyph `.inc` from an existing pixel-font sheet (AI font gen is a non-goal). | `sprite font-bake <sheet>` | `.inc` + codepoint-range metadata | `sprites/ui/font.inc` |
+| **BG tilemap** | Full image (hub background, title screen) as a deduplicated tile set + tilemap for text-BG modes. Flip-aware dedup encodes mirrors into map-entry flip bits. | `sprite bg-bake <image>` | `.inc` (tiles + `_MAP` + palette) + round-trip preview PNG | `sprites/bg/` |
 | **Manifest** | Per-asset JSON metadata (scale, faction, archetype, source refs, frame count, ledger fields). | `sprite manifest set` | JSON | `manifests/<asset>.json` |
 | **Canonical registry entry** | Cross-reference index: given faction + archetype + scale, find the canonical and its variants. | `sprite canonical set` / `sprite canonical variant` | `manifests/canonical.json` | `manifests/` |
 

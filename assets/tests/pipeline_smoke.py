@@ -531,6 +531,46 @@ def sc_ui_bake(td: Path) -> str:
     return "9 cells ok"
 
 
+def sc_bg_bake(td: Path) -> str:
+    from PIL import Image, ImageDraw
+    src = td / "bg.png"
+    im = Image.new("RGB", (64, 32), (40, 60, 120))
+    d = ImageDraw.Draw(im)
+    # repeated block (exact dedup) + mirrored triangles (flip dedup)
+    d.rectangle([0, 0, 7, 7], fill=(255, 200, 40))
+    d.rectangle([16, 0, 23, 7], fill=(255, 200, 40))
+    d.polygon([(32, 4), (39, 0), (39, 7)], fill=(80, 200, 120))
+    d.polygon([(55, 4), (48, 0), (48, 7)], fill=(80, 200, 120))
+    im.save(src)
+    out = td / "bg.inc"
+    code, rec, _, err = run_cli(td, [
+        "bg-bake", str(src), "--out", str(out), "--name", "BGT",
+    ])
+    _require(code == 0, f"bg-bake: {err}")
+    _require(rec.get("map") == [8, 4], f"map dims {rec.get('map')}")
+    _require(rec.get("tiles_total") == 32, f"tiles_total {rec.get('tiles_total')}")
+    uniq = rec.get("tiles_unique")
+    _require(isinstance(uniq, int) and uniq < 32, f"no dedup: {uniq}")
+    text = out.read_text()
+    _require("BGT_MAP:" in text, "missing MAP array")
+    _require(re.search(r"BGT_MAP_W\s*=\s*8", text), "missing MAP_W")
+    _require(re.search(r"BGT_MAP_H\s*=\s*4", text), "missing MAP_H")
+    _require(re.search(rf"BGT_TILE_COUNT\s*=\s*{uniq}", text), "TILE_COUNT mismatch")
+    # round-trip preview must equal the quantized source exactly
+    q = im.quantize(colors=15, method=Image.MEDIANCUT).convert("RGB")
+    pv = Image.open(rec["preview"]).convert("RGB")
+    diff = sum(1 for a, b in zip(q.getdata(), pv.getdata()) if a != b)
+    _require(diff == 0, f"round-trip mismatch: {diff} px")
+    # flip dedup must strictly beat exact-only dedup on this fixture
+    code2, rec2, _, err2 = run_cli(td, [
+        "bg-bake", str(src), "--out", str(td / "bg2.inc"), "--name", "BGU",
+        "--no-flip-dedup", "--no-preview",
+    ])
+    _require(code2 == 0, f"bg-bake no-flip: {err2}")
+    _require(rec2["tiles_unique"] > uniq, f"flip dedup did not help: {rec2['tiles_unique']} vs {uniq}")
+    return f"{uniq} unique of 32, round-trip exact"
+
+
 def sc_font_bake(td: Path) -> str:
     src = td / "font.png"
     cols, rows = 4, 2
@@ -1255,6 +1295,7 @@ SCENARIOS: list[tuple[str, Callable[..., str]]] = [
     ("bake.nonsquare", sc_bake_nonsquare),
     ("anim.shared_palette", sc_anim),
     ("ui_bake.nine_slice", sc_ui_bake),
+    ("bg_bake.tilemap", sc_bg_bake),
     ("font_bake.glyphs", sc_font_bake),
     ("tile.offset_seam", sc_tile_offset),
     ("tile.mirror_exact", sc_tile_mirror),
