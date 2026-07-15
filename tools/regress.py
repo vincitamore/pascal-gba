@@ -85,7 +85,11 @@ def run_case(case: dict) -> None:
             "--frames", str(case["frames"])]
     if case["replay"]:
         argv += ["--replay", str(case["replay"])]
-    r = subprocess.run(argv, capture_output=True, text=True)
+    # The emulator writes UTF-8 (box-drawing in its dbglog banner); without an
+    # explicit encoding Windows decodes pipes as cp1252 and the reader thread
+    # throws UnicodeDecodeError noise.
+    r = subprocess.run(argv, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise SystemExit(f"emulator exit {r.returncode} for {rom}:\n{r.stdout[-2000:]}")
 
