@@ -1,0 +1,21 @@
+Patch against Free Pascal RTL source (modified LGPL - see FPC's COPYING.FPC);
+publishing this patch satisfies the modified-source availability obligation.
+--- prt0.as.orig
++++ prt0.as
+@@ -164,6 +164,18 @@ CEW0Skip:
+ 	ldr	r1, =fake_heap_end
+ 	ldr	r0, =__eheap_end
+ 	str	r0, [r1]
++@---------------------------------------------------------------------------------
++@ Run static initializers + initialise newlib's heap (libc_init_array)
++@ Modern devkitARM crt0 (post-2015) calls this before main(); FPC's
++@ prt0 was a pre-2015 fork that omitted it, producing silent heap
++@ corruption with newer libsysbase.  Without this, Format(),
++@ ansistring concat, dynamic arrays, and class instantiation all
++@ produce garbage in -Tgba builds.
++@---------------------------------------------------------------------------------
++	ldr	r3,=__libc_init_array
++	bl	_blx_r3_stub
+ @---------------------------------------------------------------------------------
+ @ Jump to user code
+ @---------------------------------------------------------------------------------

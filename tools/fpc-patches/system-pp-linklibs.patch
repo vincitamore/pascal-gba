@@ -1,0 +1,15 @@
+Patch against Free Pascal RTL source (modified LGPL - see FPC's COPYING.FPC);
+publishing this patch satisfies the modified-source availability obligation.
+--- system.pp.orig
++++ system.pp
+@@ -67,7 +67,10 @@
+ implementation
+ 
+-{$linklib sysbase}
++{$linklib c}        { devkitARM newlib: provides __libc_init_array, heap, libgloss }
++{$linklib sysbase}  { devkitARM glue: provides fake_heap_start/end, syscall stubs }
++{$linklib gba}      { devkitARM libgba: provides GBA-specific runtime init incl. _impure_ptr }
++{$linklib gcc}      { compiler runtime: 64-bit div, soft-float helpers }
+ 
+ {$define fpc_softfpu_implementation}
+   {$i softfpu.pp}

@@ -1,0 +1,6 @@
+# Asset pipeline Python deps (pip install -r assets/requirements.txt).
+# Optional non-pip host binaries (not installed here):
+#   ffmpeg  -- extract subcommand only
+#   fpc     -- emulate subcommand only (host Free Pascal compiler)
+requests>=2.31,<3
+Pillow>=10.2,<12

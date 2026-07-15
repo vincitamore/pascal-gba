@@ -1,0 +1,37 @@
+Patch against Free Pascal RTL source (modified LGPL - see FPC's COPYING.FPC);
+publishing this patch satisfies the modified-source availability obligation.
+--- sysheap.inc.orig
++++ sysheap.inc
+@@ -19,15 +19,30 @@
+ 
+ 
+ var
+-  heap_start: longint; external name '__eheap_start';
++  heap_start: longint;  external name '__eheap_start';
++  heap_end:   longint;  external name '__eheap_end';
++  heap_ptr:   PtrUInt = 0;
+ 
+ function SysOSAlloc(size: ptruint): pointer;
++{ Linear bump allocator across the EWRAM heap region the linker
++  script reserves at __eheap_start .. __eheap_end (typically
++  ~250 KB on a standard GBA cart).
++
++  Pre-2026 implementation returned `@heap_start` regardless of
++  size, overwriting prior allocations on every call past the
++  first.  This silently broke Format/IntToStr/SetLength. }
+ begin
+-  result := @heap_start;
++  if heap_ptr = 0 then
++    heap_ptr := PtrUInt(@heap_start);
++  size := (size + 3) and not PtrUInt(3);
++  if (heap_ptr + size) > PtrUInt(@heap_end) then
++    Exit(nil);
++  Result := pointer(heap_ptr);
++  heap_ptr := heap_ptr + size;
+ end;
+ 
+ { $define HAS_SYSOSFREE}
+ 
+ procedure SysOSFree(p: pointer; size: ptruint);
+ begin
+ end;

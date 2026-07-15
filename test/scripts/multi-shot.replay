@@ -1,0 +1,12 @@
+# Multi-shot capture example: several screenshots and a state dump from ONE
+# emulator run. Frame numbers are emulator frames; with the bundled BIOS the
+# cart gets control at roughly frame 60.
+#
+#   .\bin\gbarun.exe --rom test\dbg_smoke.gba --headless ^
+#       --replay test\scripts\multi-shot.replay --frames 300
+#
+# Output paths are relative to the emulator's working directory (repo root).
+80   screenshot bin/shot_f80.png
+150  screenshot bin/shot_f150.png
+200  dump-state bin/state_f200.txt
+250  screenshot bin/shot_f250.png

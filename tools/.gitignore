@@ -1,0 +1,8 @@
+# Local install artifacts — installer binaries, build outputs, anything
+# fetched at install time. The install script itself is committed; what
+# it downloads / produces is not.
+*.exe
+*.zip
+*.tar.gz
+*.o
+*.a

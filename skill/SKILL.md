@@ -1,0 +1,160 @@
+---
+name: pascal-gba
+description: Drive the pascal-gba toolchain from an agent harness - cross-compile Object Pascal to GBA ROMs (build-gba.ps1), run them headless in the bundled emulator (bin\gbarun.exe) with scripted replays, multi-shot screenshots, state dumps, and cart-to-host debug logging, and build the host test suite. Load BEFORE building or running anything in this repository. Covers the command surface and the cart-side coding discipline; the docs/ pages carry the deep engineering rationale.
+---
+
+# pascal-gba agent skill
+
+The repository is three instruments: a Pascal-to-GBA cross-compile toolchain, a
+GBA emulator with a headless replay/capture rig, and an image-to-GBA asset
+pipeline. This skill is the command surface. Everything below assumes the
+working directory is the repository root.
+
+## Cross-cutting facts
+
+1. **Run from the repo root.** Relative paths in `build-gba.ps1`, `gbarun.exe`
+   defaults, and replay output paths all assume it.
+2. **The "Util gbafix.exe not found" link error is noise.** FPC tries to run a
+   host gbafix and fails; the build script runs `tools\gbafix.py` afterward.
+   The build is good when the final line prints `OK: ... bytes`.
+3. **The bundled BIOS boots in ~60 frames.** Cart code gets control around
+   emulator frame 60 (the smoke ROM's first debug message lands at frame 61).
+   Plan replay scripts and `--screenshot-frame` values accordingly.
+4. **`bin\gbarun.exe` is the canonical runner.** It loads any ROM via `--rom`
+   and defaults to `test\dbg_smoke.gba` and `bios\gba_bios.bin`.
+5. **Exit codes**: `0` clean (frame budget reached or window closed), `1`
+   ROM/BIOS path missing or load failed, `2` unmapped-memory access flood,
+   `3` CPU halted with no IRQ progress for 120 frames.
+
+## Build
+
+```powershell
+# Cross-compile a Pascal source to a .gba ROM (emits next to the source)
+.\build-gba.ps1 test\dbg_smoke
+.\build-gba.ps1 -KeepIntermediates test\dbg_smoke   # keep .o/.s/.ppu
+
+# Host-side emulator + test binaries into bin\
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-host.ps1
+
+# Rebuild the bundled BIOS from bios\src (only needed after editing it)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-bios.ps1
+```
+
+Toolchain missing? `tools\toolchain-check.ps1` reports OK/MISS per component;
+`tools\install-tgba.ps1` and `tools\install-devkitpro.ps1` install the chain.
+
+## Run
+
+```powershell
+# Windowed (close the window or Esc to exit; F12 writes a state dump to dumps\)
+.\bin\gbarun.exe --rom <path.gba> --frames 0
+
+# Headless, deterministic
+.\bin\gbarun.exe --rom <path.gba> --headless --frames 600
+.\bin\gbarun.exe --rom <path.gba> --headless --frames 600 --screenshot out.png --screenshot-frame 300
+```
+
+| Flag | Effect |
+|---|---|
+| `--rom PATH` | ROM to load (cwd-relative, then exe-relative) |
+| `--bios PATH` | BIOS image (default `bios\gba_bios.bin`) |
+| `--frames N` | Frame budget; 0 = until the window closes (windowed only) |
+| `--headless` | No window, no audio, no 60 FPS pacing |
+| `--scale N` | Window size multiplier, 1-8 (default 3) |
+| `--screenshot PATH` | PNG of the framebuffer at end of run |
+| `--screenshot-frame N` | Capture at the end of frame N (1-indexed) |
+| `--replay PATH` | Scripted input (grammar below) |
+| `--record PATH` | Record keypad input to a replay script |
+| `--dbglog-out PATH` | Write the debug-log tail to a file at shutdown |
+| `--dump-audio PATH` | APU output to WAV |
+| `--poke HEX_ADDR HEX_VAL` | Force a byte into IWRAM every frame (debug) |
+
+## Replay scripts
+
+One event per line; frame numbers are emulator frames (cart control ~frame 60).
+
+```
+0    press      START
+1    release    START
+60   tap        A               # press at N, release at N+1
+150  screenshot bin/f150.png    # framebuffer at this frame
+200  dump-state bin/s200.txt    # full CPU/IRQ/DMA/OAM/debug-log dump
+250  dump-game  bin/g250.txt    # decode a cart-published snapshot struct
+```
+
+Buttons: `A B START SELECT UP DOWN LEFT RIGHT L R` (case-insensitive).
+Output paths are relative to the emulator's working directory (the repo root).
+`test\scripts\multi-shot.replay` is a working example: several screenshots and
+a state dump from one run, no re-boot between captures — the canonical way to
+verify time-varying behavior.
+
+## Standard verification runs
+
+```powershell
+# 1. Toolchain + emulator + debug channel end to end (the acceptance smoke):
+.\build-gba.ps1 test\dbg_smoke
+.\bin\gbarun.exe --rom test\dbg_smoke.gba --headless --frames 300
+#    -> ten "dbg_smoke msg N of 10" lines around frames 61-70, exit 0
+
+# 2. Host-side unit suites (CPU, PPU, BIOS HLE, saves, replay, debug channel):
+powershell -NoProfile -ExecutionPolicy Bypass -File test\run_all_tests.ps1
+
+# 3. CLI exit-code matrix:
+powershell -NoProfile -ExecutionPolicy Bypass -File test\headless_smoke.ps1
+
+# 4. OBJ render path against the shipped generated test sprite:
+.\bin\sprite_smoke.exe     # writes bin\sprite_f0..f3.ppm
+```
+
+## Cart-side coding discipline
+
+Cart code is `{$mode objfpc}{$H+}` Pascal compiled with `-Tgba`. The rules
+that bite are documented with full rationale in `docs\`:
+
+- **Debug logging** (`docs\debugging.md`): `uses Gba_Dbg`, `DbgLogStr` with
+  STATIC strings only; call `DbgLogWaitConsumed` between two logs on the same
+  code path; promote locals that must survive a log call to unit-level vars
+  (caller-saved-register clobber).
+- **No `Format()`/`IntToStr`/`Str()` in cart code** (`docs\rtl-limitations.md`):
+  the `-Tgba` RTL's numeric formatting is broken; build strings by explicit
+  char assignment or pre-built variants.
+- **Graphics** (`docs\graphics-gotchas.md`): never byte-write VRAM (halfwords
+  only); hide all 128 OAM slots before configuring any (write `$0200` to each
+  attr0); BG palette slot 0 is always the backdrop in 4bpp modes (shift pixel
+  indices +1 at load).
+- **VBlank sync** (poll-based, no IRQ setup needed):
+
+```pascal
+procedure WaitVBlank;
+begin
+  while PWord($04000006)^ >= 160 do ;   { VCOUNT }
+  while PWord($04000006)^ <  160 do ;
+end;
+```
+
+- **Key input is active-low**: `keys := (PWord($04000130)^ and $03FF) xor $03FF;`
+  Edge-detect with `edge := keys and (keys xor prevKeys);`.
+
+## Failure modes
+
+| Symptom | Cause |
+|---|---|
+| Link "error" about gbafix.exe, but `OK:` prints | Harmless (fact 2) |
+| ROM stalls on the BIOS splash | `gbafix.py` did not run; rebuild via `build-gba.ps1` |
+| Debug lines truncated or missing | Missing `DbgLogWaitConsumed` between same-frame logs |
+| Garbage in a local var after a log call | Register clobber; promote the local to a unit var |
+| Phantom sprites in the top-left corner | OAM slots not hidden on init |
+| Terrain tiles show holes | BG palette slot-0 backdrop; shift indices +1 |
+| Exit 3, `halted=1` | Cart never progressed past an IRQ wait; check IE/IME setup |
+| Replay action ignored | Unknown button/action name; see the grammar table |
+
+## Asset pipeline
+
+`assets\sprite.py` turns AI-generated images into GBA-ready tiles, palettes,
+and sprite sheets, with an emulator-in-the-loop review stage. Install its two
+dependencies with `python -m pip install -r assets\requirements.txt`. Only
+`gen`/`edit`/`video` need credentials (`--api-key` flag > `XAI_API_KEY` env >
+OAuth file); the other stages run offline. Path roots are flag-or-env driven:
+`--cache-dir`/`SPRITE_CACHE_DIR`, `--manifest-dir`/`SPRITE_MANIFEST_DIR`,
+`--ledger`/`SPRITE_LEDGER` (defaults are cwd-relative). Full documentation:
+`assets\PIPELINE.md`.

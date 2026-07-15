@@ -1,0 +1,36 @@
+# Build artifacts
+bin/
+*.gba
+*.elf
+*.o
+*.ppu
+ppas.bat
+*_ppas.bat
+link*.res
+src/*.s
+
+# Captures and dumps
+dumps/
+*.sav
+*.wav
+build_*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Asset pipeline working state
+.cache/
+ledger.jsonl
+
+# Pipeline outputs (cwd-relative defaults + assets/ when run from repo root)
+manifests/
+out/
+assets/manifests/
+assets/out/
+
+# Reference-audio work area (never shipped: reference captures and
+# FIFO forensics carry commercial-ROM audio)
+test/ref/
+*.fifoa.raw
+*.fifob.raw

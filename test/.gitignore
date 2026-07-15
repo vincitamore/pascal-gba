@@ -1,0 +1,10 @@
+# Build artifacts produced by build-gba.ps1
+*.gba
+*.elf
+*.o
+*.s
+*.ppu
+*.sav
+ppas.bat
+*_ppas.bat
+link*.res
