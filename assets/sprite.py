@@ -45,6 +45,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from sprite_lib import bake, bgbake, tile, pick, review, edit, emulate, xai, cost, util
+from sprite_lib import iso_geom, iso_compose
 
 
 # ============================================================
@@ -527,6 +528,126 @@ def cmd_manifest(args) -> dict:
     raise SystemExit(f"unknown manifest op: {args.m_op}")
 
 
+def cmd_iso_geom_preview(args) -> dict:
+    """Draw geometry sanity plate: diamond + solid cube + ghost cube on key bg."""
+    from PIL import Image
+
+    size = iso_geom.IsoSize.parse(args.size)
+    cube_w = size.w if size.w <= 32 else 16
+    canvas = Image.new("RGB", (size.w * 3 + 16, max(size.h, cube_w) + 8), (30, 30, 40))
+    diamond = iso_geom.paint_diamond(size, (60, 180, 70), outline_rgb=(0, 0, 0))
+    canvas.paste(diamond, (4, 4))
+    cube = iso_compose.paint_brick_cube(cube_w)
+    canvas.paste(cube, (size.w + 8, 4), iso_compose._rgb_key_mask(cube))
+    ghost = iso_compose.paint_ghost_cube(cube_w)
+    canvas.paste(ghost, (size.w * 2 + 12, 4), iso_compose._rgb_key_mask(ghost))
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if args.scale != 1:
+        canvas = canvas.resize(
+            (canvas.width * args.scale, canvas.height * args.scale),
+            Image.Resampling.NEAREST,
+        )
+    canvas.save(out)
+    return {
+        "op": "iso_geom_preview",
+        "out": str(out),
+        "size": str(size),
+        "half_step": list(size.half_step),
+        "contract": "2:1 dimetric",
+    }
+
+
+def cmd_iso_road_bank(args) -> dict:
+    """Emit grass + 16 Wang 2-edge road pieces and stitch contact sheets."""
+    size = iso_geom.IsoSize.parse(args.size)
+    gtex = Path(args.grass) if args.grass else None
+    rtex = Path(args.road) if args.road else None
+    bank = iso_compose.road_bank(
+        size,
+        grass_tex=gtex,
+        road_tex=rtex,
+        lane=args.lane,
+    )
+    out_dir = Path(args.out_dir)
+    paths = iso_compose.save_bank(bank, out_dir)
+    stitches = {}
+    for pat in ("straight_ns", "straight_ew", "corner", "tee", "cross", "atlas"):
+        prev = iso_compose.stitch_preview(bank, pat, size, scale=args.scale)
+        pp = out_dir / f"stitch_{pat}.png"
+        prev.save(pp)
+        stitches[pat] = str(pp)
+    return {
+        "op": "iso_road_bank",
+        "out_dir": str(out_dir),
+        "size": str(size),
+        "tiles": len(paths),
+        "paths": [str(p) for p in paths],
+        "stitches": stitches,
+        "inventory": "grass + road_00..15 (Wang 2-edge)",
+        "mask_bits": {"N": 1, "E": 2, "S": 4, "W": 8},
+    }
+
+
+def cmd_iso_brick(args) -> dict:
+    """Emit solid brick cube, Z-plane ghost outline, and ground shadow disc."""
+    from PIL import Image
+
+    w = int(args.size)
+    mat = Image.open(args.material).convert("RGB") if args.material else None
+    solid = iso_compose.paint_brick_cube(w, material_tex=mat, studs=not args.no_studs)
+    ghost = iso_compose.paint_ghost_cube(w)
+    shadow = iso_compose.paint_ground_shadow(iso_geom.IsoSize(w * 2, w))
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.suffix:
+        solid_p = out
+        ghost_p = out.with_name(out.stem + "_ghost.png")
+        shadow_p = out.with_name(out.stem + "_shadow.png")
+    else:
+        out.mkdir(parents=True, exist_ok=True)
+        solid_p = out / "brick_solid.png"
+        ghost_p = out / "brick_ghost.png"
+        shadow_p = out / "brick_shadow.png"
+    solid.save(solid_p)
+    ghost.save(ghost_p)
+    shadow.save(shadow_p)
+    return {
+        "op": "iso_brick",
+        "solid": str(solid_p),
+        "ghost": str(ghost_p),
+        "shadow": str(shadow_p),
+        "size": w,
+        "z_step": w // 2,
+    }
+
+
+def cmd_iso_stitch(args) -> dict:
+    """Re-stitch a previously emitted road bank into a contact-sheet pattern."""
+    from PIL import Image
+
+    size = iso_geom.IsoSize.parse(args.size)
+    bank_dir = Path(args.bank)
+    bank = {}
+    for p in sorted(bank_dir.glob("*.png")):
+        if p.name.startswith("stitch_"):
+            continue
+        bank[p.stem] = Image.open(p).convert("RGB")
+    if "grass" not in bank:
+        bank["grass"] = iso_compose.paint_ground_tile(size)
+    prev = iso_compose.stitch_preview(bank, args.pattern, size, scale=args.scale)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    prev.save(out)
+    return {
+        "op": "iso_stitch",
+        "out": str(out),
+        "pattern": args.pattern,
+        "size": str(size),
+        "bank_tiles": len(bank),
+    }
+
+
 def cmd_canonical(args) -> dict:
     from sprite_lib import registry
     mdir = resolve_manifest_dir(args)
@@ -1005,6 +1126,56 @@ def build_parser() -> argparse.ArgumentParser:
     can_get.set_defaults(fn=cmd_canonical)
     can_ls = can_sub.add_parser("list", help="dump the whole canonical index")
     can_ls.set_defaults(fn=cmd_canonical)
+
+    # ---- isometric tileset primitives (offline geometry + optional textures) ----
+    ig = sub.add_parser(
+        "iso-geom-preview",
+        help="draw 2:1 diamond + brick cube + ghost (geometry contract plate)",
+    )
+    ig.add_argument("--size", default="32x16",
+                    help="ground diamond WxH; must be 2:1 even (default 32x16)")
+    ig.add_argument("--out", required=True, help="output PNG path")
+    ig.add_argument("--scale", type=int, default=4, help="nearest-neighbor upscale")
+    ig.set_defaults(fn=cmd_iso_geom_preview)
+
+    ir = sub.add_parser(
+        "iso-road-bank",
+        help="emit grass + 16 Wang 2-edge road tiles and stitch previews",
+    )
+    ir.add_argument("--size", default="32x16", help="ground diamond WxH (2:1)")
+    ir.add_argument("--out-dir", required=True, help="directory for tile PNGs + stitches")
+    ir.add_argument("--grass", default=None, help="optional grass texture image")
+    ir.add_argument("--road", default=None, help="optional asphalt texture image")
+    ir.add_argument("--lane", type=float, default=0.40,
+                    help="lane half-width in diamond UV (default 0.40)")
+    ir.add_argument("--scale", type=int, default=3, help="stitch preview upscale")
+    ir.set_defaults(fn=cmd_iso_road_bank)
+
+    ib = sub.add_parser(
+        "iso-brick",
+        help="emit solid brick cube + Z ghost + ground shadow (shared geometry)",
+    )
+    ib.add_argument("--size", type=int, default=16,
+                    help="cube width in pixels (even; default 16 -> 16x16 AABB)")
+    ib.add_argument("--out", required=True,
+                    help="output PNG path (or directory without extension)")
+    ib.add_argument("--material", default=None, help="optional material texture")
+    ib.add_argument("--no-studs", action="store_true", help="omit LEGO-like studs")
+    ib.set_defaults(fn=cmd_iso_brick)
+
+    ist = sub.add_parser(
+        "iso-stitch",
+        help="compose a road-bank directory into a named stitch contact sheet",
+    )
+    ist.add_argument("--bank", required=True, help="directory with grass.png + road_00..15.png")
+    ist.add_argument("--pattern", default="cross",
+                     choices=["straight_ns", "straight_ew", "corner", "tee",
+                              "cross", "atlas"],
+                     help="neighbor layout to prove (default cross)")
+    ist.add_argument("--size", default="32x16", help="tile size matching the bank")
+    ist.add_argument("--out", required=True, help="output PNG path")
+    ist.add_argument("--scale", type=int, default=3, help="nearest-neighbor upscale")
+    ist.set_defaults(fn=cmd_iso_stitch)
 
     return p
 

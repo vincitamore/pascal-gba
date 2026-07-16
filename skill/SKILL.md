@@ -258,6 +258,10 @@ Bakers: `bake`/`anim` (OBJ sprites), `tile` (seamless terrain), `ui-bake`
 (full image -> deduplicated BG tile set + tilemap + palette for text-BG
 modes; mirror tiles dedup through the map-entry flip bits, and a round-trip
 preview PNG proves the bake reconstructs the quantized source exactly).
+Isometric tilesets (offline): `iso-geom-preview`, `iso-road-bank` (grass +
+16 Wang 2-edge road diamonds + stitch sheets), `iso-brick` (solid cube +
+Z ghost + ground shadow), `iso-stitch`. Geometry is dimetric 2:1 (default
+ground 32x16); see `PIPELINE.md` section Isometric tilesets.
 Consumer projects keep art walkable: `art/src` (generation sources),
 `art/bg` (BG bakes), `art/sprites` (OBJ bakes), `shots/` (replay
 screenshots + logs); the staging dir is scratch and empties at the end

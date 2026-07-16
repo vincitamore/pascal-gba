@@ -23,8 +23,9 @@ consumer's own notes.
 13. [Offline vs online stage reference](#offline-vs-online-stage-reference)
 14. [Failure modes and recovery](#failure-modes-and-recovery)
 15. [Pipeline economics](#pipeline-economics)
-16. [Extension contracts](#extension-contracts)
-17. [Cross-links](#cross-links)
+16. [Isometric tilesets](#isometric-tilesets)
+17. [Extension contracts](#extension-contracts)
+18. [Cross-links](#cross-links)
 
 ---
 
@@ -36,11 +37,15 @@ consumer can `{$I}`:
 ```
 prompt -> gen | edit | video -> (extract/pick) -> bake | anim | tile | ui-bake | font-bake | bg-bake
        -> preview | emulate -> manifest / canonical registry
+
+iso-geom-preview | iso-road-bank | iso-brick | iso-stitch  (offline tileset primitives)
 ```
 
-Twenty of twenty-three subcommands run fully offline with no network and
-no credentials. Only `gen`, `edit`, and `video` call the xAI Imagine API.
-See [Offline vs online stage reference](#offline-vs-online-stage-reference).
+Most subcommands run fully offline with no network and no credentials.
+Only `gen`, `edit`, and `video` call the xAI Imagine API. Isometric bank
+generation is always offline (geometry + optional local textures).
+See [Offline vs online stage reference](#offline-vs-online-stage-reference)
+and [Isometric tilesets](#isometric-tilesets).
 
 Path defaults (ledger, manifests, prompt cache) resolve against **cwd at
 invocation**, not against the script location. Run the CLI from the asset
@@ -906,8 +911,8 @@ constants: `<NAME>_GLYPH_START`, `_GLYPH_END`, `_GLYPH_COUNT`,
 ## Offline vs online stage reference
 
 This is a hard contract, not a soft preference. Only three subcommands
-ever construct an xAI client. The other twenty never touch credentials
-or the network.
+ever construct an xAI client. Every other subcommand never touches
+credentials or the network.
 
 | Needs a credential | Never touches auth |
 |---|---|
@@ -917,6 +922,7 @@ or the network.
 | | `pick` (loop-detect keyframe selection) |
 | | `montage`, `gif`, `tile3x3`, `inspect`, `palette`, `diff`, `preview` (review) |
 | | `recolor`, `rekey`, `sheet` (local edit ops) |
+| | `iso-geom-preview`, `iso-road-bank`, `iso-brick`, `iso-stitch` (isometric tilesets) |
 | | `emulate` (host FPC only, not xAI) |
 | | `cost`, `cache`, `manifest`, `canonical` (bookkeeping) |
 
@@ -1051,6 +1057,112 @@ is cheap iteration.
 The ledger default is **cwd**/`ledger.jsonl` (override with `--ledger` or
 `SPRITE_LEDGER`). `sprite cost --json` summarizes spend. Tick scale in
 code is 1e-9 USD per tick (`USD_PER_TICK` in `sprite_lib/cost.py`).
+
+---
+
+## Isometric tilesets
+
+Dimetric (2:1) ground diamonds and stacked brick cubes for isometric
+maps. These commands are **offline geometry compositors**: they emit
+directional tile *pieces* that a game stitches by neighbor mask. Do not
+hand-paint junction hubs into a single diamond and call it a road bank.
+
+### Geometry contract
+
+| Rule | Value |
+|---|---|
+| Projection | Dimetric 2:1 (pixel-art standard; ~26.6 deg), not true 30 deg iso |
+| Ground diamond | Width W, height H = W/2; both even. Default **32x16** |
+| Map half-step | (W/2, H/2) = (16, 8) at default size |
+| Diamond fill | `\|dx\|/(W/2) + \|dy\|/(H/2) <= 1` inside the W x H AABB |
+| Transparent corners | AABB corners outside the diamond stay key color (magenta #FF00FF) |
+| Compact option | 16x8 when VRAM forces it (less readable roads) |
+| Brick cube | Precomposed top + left + right faces on a W x W AABB (default 16x16) |
+| Vertical step | One stack level shifts screen Y by H/2 (= W/2 for cube width W) |
+
+Modules: `sprite_lib/iso_geom.py` (math + masks), `sprite_lib/iso_compose.py`
+(road bank, brick, ghost, shadow, stitch previews).
+
+### Road inventory (Wang 2-edge)
+
+Sixteen pieces indexed by a 4-bit neighbor mask:
+
+| Bit | Neighbor | Value |
+|---|---|---|
+| N | north (+map Y tip in screen NE-SW terms — see compose docs) | 1 |
+| E | east | 2 |
+| S | south | 4 |
+| W | west | 8 |
+
+Files: `grass.png` + `road_00.png` .. `road_15.png`. Each road tile is a
+full diamond: asphalt lanes follow connectivity; grass remains only off-lane
+pixels inside the diamond. Consumer code computes mask from 4-neighbors and
+selects `road_XX` — it does not paint junctions at runtime.
+
+### Brick + height (Z) affordances
+
+| Asset | Role |
+|---|---|
+| Solid cube | Placeable block (top/left/right shaded) |
+| Ghost cube | Outline-only, same geometry — cursor aim at a height level |
+| Ground shadow | Dark disc on the ground diamond under the stack |
+
+Solid and ghost **must** share `iso_cube_faces(w)` so the ghost sits exactly
+where a brick would land.
+
+### Commands (all offline)
+
+```bash
+# Geometry plate: diamond + solid cube + ghost
+python sprite.py iso-geom-preview --size 32x16 --out _gen/iso_geom.png --scale 4
+
+# Full road bank + stitch contact sheets (straight, corner, tee, cross, atlas)
+python sprite.py iso-road-bank --size 32x16 --out-dir _gen/iso_roads --scale 3
+# Optional textures:
+#   --grass path/to/grass.jpg --road path/to/asphalt.jpg
+
+# Brick solid + ghost + shadow
+python sprite.py iso-brick --size 16 --out _gen/iso_brick.png
+
+# Re-stitch a bank into one named proof sheet
+python sprite.py iso-stitch --bank _gen/iso_roads --pattern cross \
+    --size 32x16 --out _gen/stitch_cross.png --scale 3
+```
+
+Stitch patterns: `straight_ns`, `straight_ew`, `corner`, `tee`, `cross`,
+`atlas` (all 16 masks in a grid).
+
+### Generation doctrine
+
+1. **Geometry first.** Lanes, cube faces, and masks are procedural.
+2. **Textures optional.** `gen --template texture` can supply grass/asphalt
+   or brick material; pass them into `iso-road-bank --grass/--road` or
+   `iso-brick --material`. Never generate all 16 masks as independent AI
+   images (seams and identity drift).
+3. **Gate on stitch previews.** Before a cart consumes a bank, inspect
+   `stitch_straight_*`, `stitch_corner`, `stitch_cross`. If junctions look
+   wrong, fix `iso_compose` — do not thrash the cart's neighbor algebra alone.
+4. **Bake path.** Road diamonds are BG candidates (`bg-bake` or per-tile
+   `bake --linear` depending on consumer layout). Brick cubes are OBJ-sized
+   (16x16 / 32x32) via `bake`. Ghost may be a separate OBJ with a bright
+   outline palette.
+
+### Acceptance checklist
+
+- [ ] Ground size is 2:1 (default 32x16); half-step documented for the cart
+- [ ] Bank has exactly grass + 16 road masks; NS spine != EW spine by eye
+- [ ] Stitch sheets show continuous corridors (no hub blob in every cell)
+- [ ] Brick solid and ghost align; shadow reads under the stack footprint
+- [ ] Offline smoke: `python tests/pipeline_smoke.py --only iso.`
+
+### Failure modes
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Roads look like freckles / blobs | Cart painted mask algebra onto one tile shape | Use `iso-road-bank` pieces; index by mask |
+| Junctions break at edges | Non-2:1 diamond or wrong half-step | Enforce IsoSize 2:1; half-step = (W/2,H/2) |
+| Z aim invisible | No ghost/shadow assets | `iso-brick` emits both; cart draws ghost at aim Z |
+| AI tiles don't match neighbors | Full AI per mask | Geometry compose + optional single texture |
 
 ---
 

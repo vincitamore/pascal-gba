@@ -60,6 +60,8 @@ from fixtures.gen_bake_source import magenta_pixel_count, subject_center  # noqa
 from fixtures.gen_font_sheet import expected_glyph_bitmap  # noqa: E402
 
 from sprite_lib import cost as cost_mod  # noqa: E402
+from sprite_lib import iso_compose  # noqa: E402
+from sprite_lib import iso_geom  # noqa: E402
 from sprite_lib import review  # noqa: E402
 from sprite_lib import util  # noqa: E402
 from sprite_lib import xai  # noqa: E402
@@ -1365,6 +1367,128 @@ def sc_truncated_inc(td: Path) -> str:
         return f"raised {type(e).__name__}"
 
 
+# ---------------------------------------------------------------------------
+# 7. isometric tileset primitives
+# ---------------------------------------------------------------------------
+
+def sc_iso_geom_contract(td: Path) -> str:
+    """2:1 diamond math, cube faces, and CLI geometry plate."""
+    # Size contract
+    try:
+        iso_geom.IsoSize(16, 16)
+        raise Fail("accepted non-2:1 size 16x16")
+    except ValueError:
+        pass
+    size = iso_geom.IsoSize(32, 16)
+    _require(size.half_step == (16, 8), f"half_step={size.half_step}")
+    # Diamond interior / corners
+    _require(iso_geom.in_diamond(16, 8, 32, 16), "center not in diamond")
+    _require(not iso_geom.in_diamond(0, 0, 32, 16), "AABB corner wrongly inside")
+    corners = iso_geom.diamond_corners(32, 16)
+    _require(len(corners) == 4, "corners")
+    # Cube faces closed inventory
+    faces = iso_geom.iso_cube_faces(16)
+    _require(faces.canvas == (16, 16), f"canvas={faces.canvas}")
+    _require(len(faces.top) == 4 and len(faces.left) == 4 and len(faces.right) == 4,
+             "face poly counts")
+    # Lattice placement
+    sx, sy = iso_geom.cell_screen_xy(1, 0, size)
+    _require((sx, sy) == (16, 8), f"cell(1,0)={(sx, sy)}")
+    # CLI plate
+    out = td / "iso_geom.png"
+    code, rec, _, err = run_cli(td, [
+        "iso-geom-preview", "--size", "32x16", "--out", str(out), "--scale", "2",
+    ])
+    _require(code == 0, f"iso-geom-preview: {err}")
+    _require(out.is_file() and out.stat().st_size > 0, "missing geom plate")
+    _require(rec.get("contract") == "2:1 dimetric", f"rec={rec}")
+    return "2:1 contract + cube faces + plate"
+
+
+def sc_iso_road_bank_cli(td: Path) -> str:
+    """16 Wang road pieces + stitch sheets; NS/EW spines differ."""
+    out_dir = td / "road_bank"
+    code, rec, _, err = run_cli(td, [
+        "iso-road-bank", "--size", "32x16", "--out-dir", str(out_dir), "--scale", "2",
+    ])
+    _require(code == 0, f"iso-road-bank: {err}")
+    _require(rec.get("tiles") == 17, f"expected 17 tiles, got {rec.get('tiles')}")
+    grass = out_dir / "grass.png"
+    _require(grass.is_file(), "missing grass.png")
+    for m in range(16):
+        p = out_dir / f"road_{m:02d}.png"
+        _require(p.is_file(), f"missing {p.name}")
+        im = Image.open(p)
+        _require(im.size == (32, 16), f"{p.name} size={im.size}")
+    for pat in ("straight_ns", "straight_ew", "corner", "tee", "cross", "atlas"):
+        sp = out_dir / f"stitch_{pat}.png"
+        _require(sp.is_file() and sp.stat().st_size > 0, f"missing stitch {pat}")
+    # Directional pieces must not be identical (NS spine vs EW spine)
+    ns = Image.open(out_dir / "road_05.png")  # N|S
+    ew = Image.open(out_dir / "road_10.png")  # E|W
+    pad = Image.open(out_dir / "road_00.png")
+    delta_ns_ew = sum(
+        abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
+        for a, b in zip(ns.getdata(), ew.getdata())
+    )
+    delta_pad_ns = sum(
+        abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
+        for a, b in zip(pad.getdata(), ns.getdata())
+    )
+    _require(delta_ns_ew > 100, f"NS/EW tiles too similar delta={delta_ns_ew}")
+    _require(delta_pad_ns > 100, f"pad/NS too similar delta={delta_pad_ns}")
+    # Direct library inventory pin
+    bank = iso_compose.road_bank(iso_geom.GROUND_DEFAULT)
+    _require(set(bank.keys()) == {"grass"} | {f"road_{m:02d}" for m in range(16)},
+             f"bank keys={sorted(bank)}")
+    return f"17 tiles + stitches; NS/EW delta={delta_ns_ew}"
+
+
+def sc_iso_brick_cli(td: Path) -> str:
+    """Solid + ghost + shadow share geometry; ghost is outline-only."""
+    out = td / "brick.png"
+    code, rec, _, err = run_cli(td, [
+        "iso-brick", "--size", "16", "--out", str(out),
+    ])
+    _require(code == 0, f"iso-brick: {err}")
+    solid = Path(rec["solid"])
+    ghost = Path(rec["ghost"])
+    shadow = Path(rec["shadow"])
+    for p in (solid, ghost, shadow):
+        _require(p.is_file(), f"missing {p}")
+    sim = Image.open(solid)
+    gim = Image.open(ghost)
+    _require(sim.size == (16, 16), f"solid size={sim.size}")
+    _require(gim.size == (16, 16), f"ghost size={gim.size}")
+    _require(rec.get("z_step") == 8, f"z_step={rec.get('z_step')}")
+    # Ghost should have fewer opaque (non-key) pixels than solid
+    key = (255, 0, 255)
+    solid_fill = sum(1 for px in sim.getdata() if px != key)
+    ghost_fill = sum(1 for px in gim.getdata() if px != key)
+    _require(ghost_fill > 0, "ghost empty")
+    _require(ghost_fill < solid_fill // 2, f"ghost denser than outline ({ghost_fill} vs {solid_fill})")
+    return f"solid/ghost/shadow; fill {solid_fill}/{ghost_fill}"
+
+
+def sc_iso_stitch_cli(td: Path) -> str:
+    """iso-stitch reloads a bank and emits a named pattern sheet."""
+    bank_dir = td / "stitch_bank"
+    code, rec, _, err = run_cli(td, [
+        "iso-road-bank", "--size", "32x16", "--out-dir", str(bank_dir), "--scale", "1",
+    ])
+    _require(code == 0, f"bank seed: {err}")
+    out = td / "stitch_cross.png"
+    code, rec, _, err = run_cli(td, [
+        "iso-stitch", "--bank", str(bank_dir), "--pattern", "cross",
+        "--size", "32x16", "--out", str(out), "--scale", "2",
+    ])
+    _require(code == 0, f"iso-stitch: {err}")
+    _require(out.is_file() and out.stat().st_size > 0, "missing stitch out")
+    im = Image.open(out)
+    _require(im.size[0] > 32 and im.size[1] > 16, f"stitch too small {im.size}")
+    return f"stitch {im.size}"
+
+
 # ===========================================================================
 # runner
 # ===========================================================================
@@ -1420,6 +1544,11 @@ SCENARIOS: list[tuple[str, Callable[..., str]]] = [
     ("emulate.obj_linear_parity", sc_obj_order_emulate_parity),
     # 6. known-risk
     ("risk.truncated_inc", sc_truncated_inc),
+    # 7. isometric tileset primitives (offline)
+    ("iso.geom_contract", sc_iso_geom_contract),
+    ("iso.road_bank_cli", sc_iso_road_bank_cli),
+    ("iso.brick_cli", sc_iso_brick_cli),
+    ("iso.stitch_cli", sc_iso_stitch_cli),
 ]
 
 
