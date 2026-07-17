@@ -769,7 +769,26 @@ topology lives in the consumer DESIGN (e.g. adventure acre graph).
 **Never:** solid-color sky fill into mid; `//8` NEAREST pixelation of the sky
 plate (destroys gradient into one purple bar); dirt path baked into mid;
 bottom-only crop of booth midsections under a pure sky bar; procedural soft
-8×8 as the only walk-plane face when a ground plate is required.
+8×8 as the only walk-plane face when a ground plate is required;
+**cyan/blue water bands** between mid and ground (common gen failure).
+
+**Closed scenic loop (acre packs):** vision judges are mandatory before cart
+entry for mid/ground/compose — not optional chat thrash.
+
+```text
+# Rubrics: scenic-mid-strip | scenic-ground-plate | scenic-compose
+py sprite.py judge mid_preview.png --rubric scenic-mid-strip \
+  --observe art/gates/<pack>/mid.observe.md --json
+# Gate JSON (programmatic): art/gates/<pack>/*.judge.json
+# action ∈ pass|regen_mid|regen_ground|regen_sky|regen_all|rebake
+
+# Consumer orchestrator (adventure example):
+python pack_pipeline.py --pack east --max-rounds 3
+# re-gens from judge.adjustment until pack.gate.json ok:true or rounds exhausted
+```
+
+Judge must emit parsable `action` + `adjustment`. Pipeline auto-ingests and
+re-runs gen/compose — operator does not hand-patch cyan water bars.
 
 ### Map scale (16x16) -- minimum
 
