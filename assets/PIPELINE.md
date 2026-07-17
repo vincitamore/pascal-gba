@@ -508,28 +508,22 @@ and a 1-pixel-shifted-down variant, played at ~450ms per frame. This is
 the tactical-map idle idiom -- gentle vertical breathing on stationary
 units, not a static pose.
 
-**3a. Synthesize the shifted variant** (Python; seconds; no API call):
-
-```python
-from PIL import Image
-shift_source_px = source_dim // target_dim    # 1024 // 16 = 64 source-px = 1 target-px
-base = Image.open('_gen/canonical/<faction>_<archetype>_<scale>.jpg').convert('RGB')
-shifted = Image.new('RGB', base.size, (255, 0, 255))   # magenta key
-shifted.paste(base, (0, shift_source_px))
-shifted.save('_gen/animations/<faction>_<archetype>_<scale>_idle_bob_f1.jpg', quality=95)
-```
-
-**3b. Bake the 2-frame animation**:
+**3. Bake the 2-frame idle bob** (offline; one CLI):
 
 ```bash
-py sprite.py anim _gen/canonical/<faction>_<archetype>_<scale>.jpg \
-    _gen/animations/<faction>_<archetype>_<scale>_idle_bob_f1.jpg \
+py sprite.py anim _gen/canonical/<faction>_<archetype>_<scale>.jpg --bob \
     --out sprites/units/<faction>/<archetype>/<scale>/idle.inc \
     --name <FACTION>_<ARCHETYPE>_<SCALE>_IDLE \
     --size <16x16|32x32|32x64> \
-    --margin 0 --colors 7 --gif-ms 450 \
+    --colors 7 \
     --json
 ```
+
+`--bob` synthesizes the 1-target-pixel down shift
+(`shift_source_px = source_h // target_h`, e.g. 1024//16 = 64) on the
+key canvas and bakes a 2-frame shared-palette anim. Defaults with `--bob`:
+`--margin 0`, `--gif-ms 450`. Manual two-path form (canonical + pre-shifted
+frame without `--bob`) remains valid for custom offsets.
 
 Visual check:
 
@@ -541,9 +535,7 @@ If the bake reveals a problem (lost feature, key-bleed, wrong palette),
 iterate Step 2 with a tighter prompt. Cache busts only when inputs or
 params change (identical prompt + params + ref hashes hit the cache).
 
-A future `sprite anim --bob` (or dedicated idle-bob subcommand) would
-collapse 3a + 3b into one invocation; until then the two-step form is
-the supported path.
+Smoke pin: `python tests/pipeline_smoke.py --only anim.bob`.
 
 ### Step 4 -- Generate walk animation
 
@@ -584,8 +576,9 @@ py sprite.py anim <picked-frame-paths> \
 py sprite.py emulate sprites/units/<faction>/<archetype>/<scale>/walk.inc --json
 ```
 
-Frame count: `--k 4` for map scale (subtle motion); `--k 6-8` for battle
-scale (real stride).
+Frame count: `--k 4` for map scale (subtle motion); **walk cycles target
+`--k 8`** (floor 6) with `anim --resample box --strict-motion`. Battle/attack
+one-shots stay 4-6 + `--no-loop`.
 
 ### Step 6 -- Derive faction variants
 
@@ -656,6 +649,112 @@ template if the action mechanics need them (see
 
 A unit is "complete" at a given scale when this minimum set exists.
 Anything beyond is content / polish.
+
+### Action-class pick defaults
+
+Use `sprite pick` after extract. Walk cycles want loop-detect; one-shots must
+pass `--no-loop` or defeat/interact keyframes wrong-trim to a false period.
+
+| Class | Template (when present) | pick | k | gif-ms | notes |
+|---|---|---|---|---|---|
+| walk | `walk-video` | loop (default) | **8** (floor 6) | 90-120 | bipedal / legged — max quality bar |
+| bounce | `bounce-video` | loop | 4-6 | 100-140 | hop locomotion (blob/soft) |
+| slither | `slither-video` | loop | 4-6 | 100-140 | undulate / wave body |
+| slide | `slide-video` | loop | 4-6 | 100-140 | glide / lean travel |
+| idle bob | n/a (`anim --bob`) | n/a | 2 | 450 | programmatic; no pick |
+| prop-idle | `prop-idle-video` | loop | 4 | 200-300 | small periodic sway |
+| interact | `interact-video` | **`--no-loop`** | 4-6 | 80-120 | one-shot open/spin/bounce |
+| hit / stagger | `hit-video` | **`--no-loop`** | 2-4 | 80-100 | short recoil |
+| defeat / soft-fail | `defeat-video` | **`--no-loop`** | 3-5 | 100-140 | kid-safe; prefer shared VFX early |
+| attack | `attack-video` | **`--no-loop`** or loop if cycle | 4-6 | 100-120 | soft combat optional |
+
+Smoke: `pick.loop`, `pick.no_loop`, `pick.no_loop_vs_loop` in
+`tests/pipeline_smoke.py`.
+
+### Video motion templates (closed catalog)
+
+`sprite video --template <name>` choices (exact set; smoke
+`video.template_catalog`):
+
+| Template | Motion | pick policy |
+|---|---|---|
+| `walk-video` | ABCD walk cycle | loop (default) |
+| `bounce-video` | squash → launch → apex → fall hop | loop |
+| `slither-video` | undulate / wave body | loop |
+| `slide-video` | lean + glide drift | loop |
+| `attack-video` | windup → contact → recovery | `--no-loop` |
+| `hit-video` | short recoil | `--no-loop` |
+| `defeat-video` | soft poof / comedy exit (kid-safe) | `--no-loop` |
+| `prop-idle-video` | small sway / glow loop | loop |
+| `interact-video` | one-shot open/spin/bounce | `--no-loop` |
+| `raw` | free prompt | operator choice |
+
+All non-raw templates require `--subject`. Shared clauses: solid magenta key
+bg, no pink/magenta on subject, static camera, no walk ABCD on non-walk
+templates. Live r2v quality is separate; offline prompt shape is gated by
+`video.template_shapes`.
+
+### Direction × motion mode (enemies and movers)
+
+**Facing and motion mode are independent axes.**
+
+| Axis | Values | Cart / bake role |
+|---|---|---|
+| **Facing** | side (L/R flip), down (front), up (back) | separate stills + sheet (or flip) so travel reads |
+| **Motion mode** | walk · bounce · slither · slide · (future hover…) | which video template + pick policy |
+
+A blob can bounce in four facings without legs. A snake can slither. A plush can
+walk. Diagonals typically keep the side sheet (same as hero). Pipeline: pick the
+template for the **mode**, then r2v once per **facing still** (`--view` /
+`--facing` as for walk). Cart wander only needs `dir + cycle frame`; it does not
+care whether the cycle is feet or squash.
+
+### Parallax layers (mode-0 scenic)
+
+Three **generated** asset layers, not solid-color fills:
+
+| Layer | BG | Asset | Key / opacity |
+|-------|-----|--------|----------------|
+| Far sky | BG2 | full sky plate (gradient, clouds) | opaque |
+| Mid scenic | BG1 | skyline / ridge plate | edge-key magenta → transparent |
+| Near ground | BG0 | grass/dirt stamps in play band only | transparent above play band |
+
+```text
+# Mid plate only (edge-key; does NOT fill solid sky into the plate)
+py sprite.py mid-plate mid.jpg --out mid_rgba.png --size 512x80 --json
+
+# Cart compose example: adventure gen_parallax_assets.py
+#   bank0 sky · bank1 mid · bank2 ground  (map entry palette bits)
+```
+
+**Failure modes:**
+- Per-pixel key eats white tent stripes → edge-flood key only (`scenic.py`).
+- **Solid sky fill baked into mid** → flat dead sky, no atmosphere, no parallax
+  depth. Never do this for product. Sky is always its own generated plate.
+- Gradient under-sky + mid holes → striped bars through fabric.
+- Ground high-contrast random 8×8 → checker artifact; use low-contrast macros.
+
+**Compose doctrine:**
+1. Gen sky plate and mid plate as separate Imagine assets.
+2. Mid: buildings only, pure magenta sky, key → RGBA (transparent sky).
+3. Sky: sample the *full* generated sky plate into horizontal bands across
+   the **visible** rows above ground (not 1:1 full-screen — otherwise a tall
+   mid only reveals the plate's top mono strip). Soft cloud stamps optional.
+4. Mid silhouette occupies the non-play band (peaks→feet). Sky shows *through*
+   keyed gaps above/between peaks — prefer that over a pure-sky slab above a
+   short rectangular crop (slab + flat cut is the solid-bar failure mode).
+5. Ground: play band only; upper rows empty so mid+sky show.
+6. Multi-bank palettes (15 colors each) for sky / mid / ground.
+
+**Mid source aspect (load-bearing):** generate mid as a **wide short strip**
+(e.g. aspect `20:9` / `2:1`), buildings from bottom edge up, pure `#FF00FF`
+sky, **no dirt/grass floor**. Full-frame 16:9 carnival scenes force-fit into a
+~48–56px band look mushy and “sliced.” Hard-fit (quantize + NEAREST) only;
+never BOX soft downscale into the band.
+
+**Never:** solid-color sky fill into mid; `//8` NEAREST pixelation of the sky
+plate (destroys gradient into one purple bar); dirt path baked into mid;
+bottom-only crop of booth midsections under a pure sky bar.
 
 ### Map scale (16x16) -- minimum
 
@@ -975,6 +1074,148 @@ on the subject; the model bleeds the key color into the figure.
 
 Recovery: add: *"Solid uniform magenta #FF00FF background only behind
 the subject. Do NOT use pink or magenta anywhere on the subject."* Re-gen.
+
+### "Warm pink / candy subject vanishes under bake (ghost silhouette)"
+
+Cause: warm pink is **itself** magenta-chroma under the brightness-invariant
+test (`R-G>50` and `B-G>30`). Default chroma-ON bake with key `#FF00FF`
+classifies the subject as background and punches it out. This is not a
+`--bg-tol` tuning problem.
+
+**Gate (elevated):**
+
+```text
+py sprite.py key-check source.png --key #FF00FF --json
+# ok:false + key_chroma_fg_px / hole_frac when subject is at risk
+
+py sprite.py bake source.png --out x.inc --name X --bg #FF00FF
+# key_hole_warn:true + stderr warn when distance-FG is mostly key-chroma
+# --strict-key fails the bake instead of warning
+```
+
+Recovery (pick one):
+
+1. **Rekey green/cyan:** put subject on solid `#00FF00` (or cyan) and bake
+   with `--bg #00FF00` (chroma may stay ON).
+2. **Exact solid key, no vignette:** `bake --no-chroma` preserves pink
+   when the key is a hard color match only.
+3. Prefer gen palettes far from the key; never ship warm-pink props on
+   default magenta chroma without `key-check` PASS.
+
+CLI: `sprite key-check <image> [--key #FF00FF] [--palette "pink:#FF50A0"]
+[--hole-frac 0.25] [--json]`. Exit 1 when `ok:false`.
+
+### "Baked sprite is a hollow ring / transparent body center"
+
+Cause: keying or downscale left only an outline (or eyes/hat) as opaque
+index-nonzero pixels; the bbox **center** is palette index 0 (OBJ
+transparent). Lived failure mode on soft-enemy character bakes.
+
+**Gate (elevated):**
+
+```text
+# bake FAILS by default when hollow-center is detected
+py sprite.py bake source.png --out x.inc --name X --size 16x16 --bg #00FF00
+
+# intentional rings (UI frames) must opt in:
+py sprite.py bake ring.png --out r.inc --name R --allow-hollow
+
+# post-hoc on any .inc:
+py sprite.py fill-check x.inc --json
+# ok:false + hollow_center:true when center of opaque bbox is mostly transparent
+```
+
+Metrics on bake JSON: `fill_ok`, `fill_hollow_center`,
+`fill_center_trans_frac`, `fill_overall_trans_frac`, `fill_sparse_warn`.
+
+Recovery: re-gen with solid filled body language; green-key or `--no-chroma`
+on solid keys; bake at 32x32 if 16x16 collapses the fill; do **not** ship
+with `--allow-hollow` for character/enemy bodies.
+
+### "Walk eyes fuse into one white blob / cycle looks wooden"
+
+Cause: video frames + nearest downscale + thin keyframe pick. On-device
+32x32 faces turn two eyes into one clump; sparse picks freeze the gait.
+
+**Gate (elevated):**
+
+```text
+py sprite.py anim f1.png ... f8.png --size 32x32 --resample box --strict-motion
+# fails if upper-bbox bright clump is oversized / single-mass / asymmetric
+# --strict-motion fails near-identical consecutive frames (wooden)
+# --no-strict-face disables eye mush fail (not for hero walks)
+```
+
+Walk doctrine: pick **k=8**, mid-cycle only, FACE LOCK in walk-video when
+anatomy is not forbidden, box resample default on `anim`,
+`--cycle-start min-stance` so frame 0 is narrow foot span (not frog-leg).
+
+### Vision judgment layer + rolling observations
+
+Mechanical gates miss some pose/face artifacts. After strip/preview exists:
+
+```text
+py sprite.py judge path/to/hero_walk.inc.strip.png --rubric walk-strip \
+  --observe path/to/asset.observe.md --json
+# exit 1 on FAIL; issues[] names frog-leg start, wrong feet, fused eyes, glitches
+# --observe appends the verdict and injects prior journal into the next call
+```
+
+Rubrics: `walk-strip` | `sprite-still` | `generic`. Model: `SPRITE_JUDGE_MODEL`
+or `grok-4` (chat + image). Same auth as gen. Use before cart entry for
+character walks — agent review should also load the strip PNG with the image
+reader when a vision model is available mid-session.
+
+**Closed quality loop (character assets):** settle primitives here before volume.
+
+```text
+1. gen base still          -> judge --rubric sprite-still --observe ASSET.observe.md
+2. if FAIL: re-gen / edit  -> re-judge (journal carries adjustments)
+3. video r2v from still    -> extract -> pick k=8 -> anim (box, min-stance, strict)
+4. judge strip             -> walk-strip + --observe (FEET/FACE/start-frame)
+5. if FAIL: re-vid with    -> adjustment text from judge.adjustment / observe
+6. bake to cart .inc       -> fill-check / key-check already on bake path
+7. optional: re-judge strip; re-vid only if residual modes remain
+```
+
+The observe file is an append-only markdown journal (see `sprite_lib/observe.py`).
+Agents may also pass it as a prompt file to a headless CLI session so successive
+judges share failure modes without re-pasting chat. Known modes map to
+pipeline adjustments (frog-leg -> `--cycle-start min-stance`; outward toes ->
+FEET LOCK re-vid; pale/fused eyes -> FACE LOCK + idle from still not walk cell0).
+
+**Idle vs walk eyes:** idle must draw the **canonical still bake**, not walk
+frame 0. Walk cells only while moving. Still and walk may use separate OBJ
+palettes; do not force one shared palette if it washes pupils.
+
+**Humanoid walks:** pass `--forbid-anatomy ""` so FACE LOCK + FEET LOCK apply
+(default forbid_anatomy strips faces for non-human units).
+
+**Side-walk primitive (feet):** when the product needs a side-view walk, do not
+r2v from a front-facing still alone — the model often preserves front bias and
+duck-splay toes. First `edit` (or gen) a **side-profile still** with both shoes
+pointing along facing, then r2v with that still as `--ref`. Idle in-cart should
+still use the front canonical still bake (stable dual-eye face), not walk cell 0.
+
+**4-direction walks (free-scroll characters):**
+
+| Cart input | Sheet | Ref still | video flags |
+|---|---|---|---|
+| pure Left / Right | side walk | side-profile still | `--view "side view" --facing right` |
+| pure Down | front/down walk | front canonical | `--view "front view facing the camera" --facing forward` |
+| pure Up | back/up walk | back-view still (`edit` from front) | `--view "back view from behind" --facing away` |
+| any diagonal (L/R + U/D) | **side walk** | (same side sheet) | — |
+
+Always pass `--forbid-anatomy ""` for humanoid kids. `--facing` is free text
+(`left|right|forward|away`). Separate OBJ palettes per sheet are fine; do not
+force a shared palette if it washes eyes.
+
+**Front/back gait (anti-duck-waddle):** r2v from a **narrow-stance walk-ready
+still** (feet close under hips), not a wide standing pose. Walk-video template
+uses subtle Zelda-like track language for `--facing forward|away` (vertical
+foot lift, no lateral splay, keep white shoe shapes — no sole-up flaps). If
+the bake still waddles, re-edit the still tighter and re-vid; do not paper
+over with cart hacks.
 
 ### "Reference image apparently ignored / poor adherence in video"
 
