@@ -752,9 +752,24 @@ sky, **no dirt/grass floor**. Full-frame 16:9 carnival scenes force-fit into a
 ~48–56px band look mushy and “sliced.” Hard-fit (quantize + NEAREST) only;
 never BOX soft downscale into the band.
 
+**Ground / walk-band plate (same family as mid):** generate a **wide short
+ground plate** for the play band only (e.g. aspect `20:9` / `2:1`, height
+matches play rows). Grass + dirt **path painted into the plate** as composition.
+**No sky, no full buildings** (tiny foot-shadows optional). Hard-fit into play
+band; compose BG0 play rows only. Soft 8×8 stamps are **fallback**, not the
+acre face. Consumer example: adventure `gen_parallax_assets.py` ground path.
+
+**Acre pack framing (narrative multi-place):** each place is a pack
+`{sky, mid_strip, ground_plate, narrative_seed, neighbors, inherit_from}`.
+Gen prompts inherit motifs from neighbors (e.g. north ground reminisces south
+mid skyline; east/west resonant variants that ring). Do not thrash five
+unrelated JPEGs — the seed graph *is* the pipeline primitive. Product SoR for
+topology lives in the consumer DESIGN (e.g. adventure acre graph).
+
 **Never:** solid-color sky fill into mid; `//8` NEAREST pixelation of the sky
 plate (destroys gradient into one purple bar); dirt path baked into mid;
-bottom-only crop of booth midsections under a pure sky bar.
+bottom-only crop of booth midsections under a pure sky bar; procedural soft
+8×8 as the only walk-plane face when a ground plate is required.
 
 ### Map scale (16x16) -- minimum
 

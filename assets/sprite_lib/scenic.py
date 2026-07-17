@@ -259,6 +259,28 @@ def prepare_sky_plate(
     return im.resize((out_w, out_h), Image.Resampling.BOX)
 
 
+def prepare_ground_plate(
+    path: str | Path,
+    *,
+    out_w: int,
+    out_h: int,
+    hard_pixels: bool = True,
+) -> Image.Image:
+    """Load walk-band ground plate → hard resize (opaque RGB).
+
+    Primitive (pair of mid strip):
+      Ground is a **wide short scenic plate** for the play band — grass + dirt
+      path painted as composition. No sky, no full buildings. Soft 8×8 stamps
+      are fallback only when no plate is available.
+
+    ``hard_pixels=True``: quantize-no-dither + NEAREST (same anti-mush as mid).
+    """
+    im = Image.open(path).convert("RGB")
+    if hard_pixels:
+        return hard_pixel_fit(im, out_w, out_h, pre_colors=28)
+    return im.resize((out_w, out_h), Image.Resampling.BOX)
+
+
 def sky_row_colors(
     sky_im: Image.Image,
     *,
