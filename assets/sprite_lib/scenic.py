@@ -152,20 +152,15 @@ def hard_pixel_fit(
     return hard.resize((out_w, out_h), Image.Resampling.NEAREST)
 
 
-def subject_strip_crop(
+def subject_bounds(
     im: Image.Image,
     is_key: KeyPred,
-    *,
-    out_w: int,
-    out_h: int,
-) -> Image.Image:
-    """Crop a horizontal strip of subject matching target aspect.
+) -> tuple[int, int, int, int]:
+    """Full subject bbox: peaks/flags through feet. Never bottom-only.
 
-    Full-frame carnival plates (e.g. 16:9) force-fit into a wide short band
-    (e.g. 512×80 ≈ 6.4:1) by pure vertical stretch → "squished" skyline.
-    Prefer a bottom-biased window of height ≈ source_w * (out_h/out_w) so
-    booths rest on the horizon and proportions stay honest; magenta sky above
-    the strip is free (keyed later).
+    Mid plates are **silhouettes**. Cropping to booth midsections (bottom-bias)
+    produces a flat cut under a solid sky bar — that is the failure mode.
+    Always keep y0 = first non-key row (flags/peaks) through y1 = last.
     """
     w, h = im.size
     px = im.load()
@@ -186,32 +181,9 @@ def subject_strip_crop(
             break
     for yy in range(h - 1, -1, -1):
         if row_has_subject(yy):
-            y1 = min(h, yy + 2)
+            y1 = min(h, yy + 3)
             break
-
-    sub_h = max(1, y1 - y0)
-    # Cap extreme vertical squash only. Target band is ultra-wide (e.g. 512×72);
-    # full-frame plates can be ~3–4× taller than honest aspect. Allow ~2.5× more
-    # vertical compression than horizontal so ferris/tent tops stay in frame —
-    # pure aspect-match crop only kept booth feet and looked worse.
-    horiz_ratio = w / max(1, out_w)
-    max_sub_h = max(out_h * 4, int(round(out_h * horiz_ratio * 2.5)))
-    if sub_h > max_sub_h:
-        # Bottom-biased window: horizon line of skyline + as much height as cap.
-        # Slight upward bias so pennants/flags aren't always truncated.
-        y1_new = y1
-        y0_new = max(y0, y1_new - max_sub_h)
-        used = y1_new - y0_new
-        if used > max_sub_h:
-            y0_new = y1_new - max_sub_h
-        # Nudge ~12% toward top of subject mass (keep flags when possible)
-        room = y0_new - y0
-        if room > 0:
-            y0_new = max(y0, y0_new - room // 8)
-            y1_new = min(y1, y0_new + max_sub_h)
-            y0_new = y1_new - max_sub_h
-        y0, y1 = y0_new, y1_new
-    return im.crop((0, y0, w, y1))
+    return 0, y0, w, y1
 
 
 def prepare_mid_plate(
@@ -223,56 +195,31 @@ def prepare_mid_plate(
     fill_rgb: tuple[int, int, int] | None = None,
     hard_pixels: bool = True,
 ) -> Image.Image:
-    """Load plate → aspect-honest subject strip → hard resize → chroma key.
+    """Load plate → **full silhouette** (peaks→feet) → hard resize → chroma key.
 
-    Default (``fill_rgb=None``): return **RGBA** with transparent sky so a
-    separate sky layer shows through. Pass ``fill_rgb`` only for opaque previews
-    — not for product mid layers (that kills parallax sky).
+    Primitive (do not regress):
+      Mid is a **silhouette** over a separate sky layer. Peaks/flags/ferris top
+      stay in frame; magenta keys so sky shows *between* and *above* the
+      irregular top edge. Never a rectangular booth-strip under a solid sky bar.
 
-    ``hard_pixels=True`` (default): quantize-no-dither + NEAREST scale so the
-    strip stays chunky instead of soft/squished/muddy.
+    Default (``fill_rgb=None``): **RGBA** with transparent sky. Pass ``fill_rgb``
+    only for opaque previews — not product mid layers.
+
+    ``hard_pixels=True``: quantize-no-dither + NEAREST (no BOX mush).
     """
     path = Path(path)
     is_key = key_pred or is_solid_magenta
     im = normalize_plate_key(Image.open(path).convert("RGB"), is_key)
-    crop = subject_strip_crop(im, is_key, out_w=out_w, out_h=out_h)
+    x0, y0, x1, y1 = subject_bounds(im, is_key)
+    crop = im.crop((x0, y0, x1, y1))
     if hard_pixels:
         crop = hard_pixel_fit(crop, out_w, out_h, pre_colors=24)
     else:
         crop = crop.resize((out_w, out_h), Image.Resampling.BOX)
-    # Re-normalize after scale (fringes)
     crop = normalize_plate_key(crop, is_key)
 
-    # Fill the mid band with subject mass: after hard-fit, magenta often still
-    # occupies the top half of the strip so buildings look "squished" into a
-    # short row. Re-crop to opaque content and NEAREST-scale that into out_h.
-    cp0 = crop.load()
-    def row_opaque(yy: int) -> bool:
-        hits = 0
-        for xx in range(0, out_w, max(1, out_w // 64)):
-            r, g, b = cp0[xx, yy]
-            if not is_key(r, g, b):
-                hits += 1
-        return hits > 3
-
-    cy0, cy1 = 0, out_h
-    for yy in range(out_h):
-        if row_opaque(yy):
-            cy0 = yy
-            break
-    for yy in range(out_h - 1, -1, -1):
-        if row_opaque(yy):
-            cy1 = yy + 1
-            break
-    content_h = max(1, cy1 - cy0)
-    if content_h < int(out_h * 0.85):
-        content = crop.crop((0, cy0, out_w, cy1))
-        crop = content.resize((out_w, out_h), Image.Resampling.NEAREST)
-        crop = normalize_plate_key(crop, is_key)
-
-    # Key ALL plate-magenta pixels (not only edge-flood). Safe because
-    # is_solid_magenta refuses white/cream/pure red — so tent stripes stay.
-    # Edge-only flood left interior sky pockets (ferris gaps) opaque pink.
+    # Key ALL plate-magenta (ferris gaps + sky above peaks). Not edge-flood only.
+    # is_solid_magenta refuses white/cream/pure red — tent stripes stay.
     cp = crop.load()
     key_mask = Image.new("L", (out_w, out_h), 0)
     km = key_mask.load()
